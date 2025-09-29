@@ -258,10 +258,10 @@ const buildHtml = (formatted: FormattedArticles): string => {
         <main style="overflow: hidden; border-radius: 12px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
           <header style="margin-bottom: 32px; text-align: center;">
             <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
-              ZK Daily Intelligence Brief
+              Good ${getGreeting()}!
             </h1>
             <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
-              Good ${getGreeting()}! ${getTimeBasedGreeting()} Let's dive into today's essential reads.
+              ${getTimeBasedGreeting()} Let's dive into today's essential reads.
             </p>
             <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
               <span>${totalArticles} articles</span>

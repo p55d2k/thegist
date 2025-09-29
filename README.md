@@ -13,12 +13,16 @@ A Next.js-based newsletter application that aggregates and emails curated commen
 - **Background Processing**: Newsletter generation and sending happens asynchronously to avoid timeouts.
 - **API-Driven**: Provides RESTful endpoints for news aggregation and newsletter sending.
 - **Image Support**: Extracts and includes article images from RSS feeds where available.
+- **Subscriber Management**: Firebase-powered subscription system with email validation and storage.
+- **Modern UI**: Responsive landing page with animated components and newsletter subscription form.
+- **Dynamic Recipient Lists**: Automatically fetches active subscribers from Firestore instead of static lists.
 
 ## Tech Stack
 
 - **Framework**: Next.js 14 with TypeScript
 - **AI**: Google Gemini 2.5 Flash for newsletter planning and curation
-- **Styling**: Tailwind CSS (for potential frontend, though this is API-focused)
+- **Database**: Firebase/Firestore for subscriber management
+- **Styling**: Tailwind CSS with Framer Motion animations
 - **Email**: Nodemailer with Gmail SMTP
 - **RSS Parsing**: xml2js
 - **HTTP Client**: Axios
@@ -45,19 +49,30 @@ A Next.js-based newsletter application that aggregates and emails curated commen
    GOOGLE_USER_EMAIL=your-gmail@gmail.com
    GOOGLE_APP_PASSWORD=your-app-password
    GEMINI_API_KEY=your-gemini-api-key
+
+   # Firebase Configuration
+   FIREBASE_API_KEY=your-firebase-api-key
+   FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   FIREBASE_PROJECT_ID=your-project-id
+   FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+   FIREBASE_APP_ID=your-app-id
+   FIREBASE_MEASUREMENT_ID=your-measurement-id
    ```
+
+   **Email Configuration:**
 
    - `GOOGLE_USER_EMAIL`: Your Gmail address for sending emails.
    - `GOOGLE_APP_PASSWORD`: Generate an app password from Google Account settings (enable 2FA first).
    - `GEMINI_API_KEY`: Your Google Gemini API key for AI-powered curation.
 
-4. Configure recipients in `app/constants/recipients.ts`:
+   **Firebase Configuration:**
+   Set up a Firebase project with Firestore database enabled for subscriber management.
+
+4. ~~Configure recipients in `app/constants/recipients.ts`:~~
    ```typescript
-   export const recipients = [
-     "recipient1@example.com",
-     "recipient2@example.com",
-     // Add more emails
-   ];
+   // No longer needed - subscribers are managed via Firebase
+   // The app now dynamically fetches active subscribers from Firestore
    ```
 
 ## Usage
@@ -132,9 +147,30 @@ Fetches and aggregates commentary articles from all configured RSS feeds.
 }
 ```
 
+#### POST `/api/subscribe`
+
+Handles newsletter subscription requests. Validates email format and stores active subscribers in Firestore.
+
+**Request Body:**
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+
+```json
+{
+  "message": "Successfully subscribed!",
+  "alreadyExists": false
+}
+```
+
 #### GET `/api/newsletter`
 
-Triggers the newsletter sending process. Fetches commentaries, uses AI to organize them into sections, formats them, and emails to recipients. Processing happens in the background.
+Triggers the newsletter sending process. Fetches commentaries, uses AI to organize them into sections, formats them, and emails to active subscribers from Firestore. Processing happens in the background.
 
 **Response:**
 
@@ -167,6 +203,9 @@ Tests different Gemini configuration options.
 - **Email Templates**: Update styling and layout in `lib/email.ts`.
 - **AI Planning**: Customize Gemini prompts and section logic in `lib/gemini.ts`.
 - **Date/Time Utilities**: Customize greetings and formatting in `lib/date.ts`.
+- **Landing Page**: Modify the homepage design and content in `app/page.tsx`.
+- **Subscription Flow**: Customize the subscription component in `components/NewsletterSubscription.tsx`.
+- **Database Schema**: Extend subscriber data structure in `lib/firestore.ts`.
 
 ## Environment Variables
 
@@ -174,6 +213,13 @@ Tests different Gemini configuration options.
 - `GOOGLE_APP_PASSWORD`: Gmail app password.
 - `GEMINI_API_KEY`: Google Gemini API key for AI curation.
 - `GEMINI_MODEL`: Optional, defaults to "gemini-2.5-flash".
+- `FIREBASE_API_KEY`: Firebase API key for Firestore access.
+- `FIREBASE_AUTH_DOMAIN`: Firebase auth domain.
+- `FIREBASE_PROJECT_ID`: Firebase project ID.
+- `FIREBASE_STORAGE_BUCKET`: Firebase storage bucket.
+- `FIREBASE_MESSAGING_SENDER_ID`: Firebase messaging sender ID.
+- `FIREBASE_APP_ID`: Firebase app ID.
+- `FIREBASE_MEASUREMENT_ID`: Firebase measurement ID (optional).
 
 ## Contributing
 
@@ -190,8 +236,11 @@ This project is private and not licensed for public use.
 ## Notes
 
 - Ensure Gmail account has 2FA enabled for app passwords.
+- Set up Firebase project with Firestore database enabled.
 - The app uses a user-agent header to mimic browser requests for RSS feeds.
 - Emails are sent with no-cache headers to ensure fresh content.
 - Newsletter generation uses background processing to avoid cron timeouts.
 - AI curation falls back to heuristic selection if Gemini API fails.
-- For production deployment, consider using a service like Vercel or Railway for Next.js hosting.
+- Subscriber data is stored securely in Firestore with email validation.
+- The landing page features responsive design with smooth animations.
+- For production deployment, consider using Vercel or Railway for Next.js hosting with Firebase integration.

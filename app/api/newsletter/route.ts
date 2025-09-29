@@ -9,7 +9,7 @@ import {
   formatRawBody,
   type FormattedArticles,
 } from "@/lib/email";
-import { recipients } from "@/constants/recipients";
+import { getActiveSubscribers } from "@/lib/firestore";
 import { getDateString, getTime } from "@/lib/date";
 
 export async function GET(req: NextRequest, res: NextResponse) {
@@ -103,6 +103,14 @@ export async function GET(req: NextRequest, res: NextResponse) {
   // Process newsletter in background
   process.nextTick(async () => {
     try {
+      // Get active subscribers from Firestore
+      const recipients = await getActiveSubscribers();
+
+      if (recipients.length === 0) {
+        console.log("No active subscribers found");
+        return;
+      }
+
       const formattedArticles: FormattedArticles = await formatArticles(
         commentaryGroups
       );
@@ -133,7 +141,9 @@ export async function GET(req: NextRequest, res: NextResponse) {
       };
 
       let info = await transporter.sendMail(data);
-      console.log(`Newsletter sent: ${info.messageId}`);
+      console.log(
+        `Newsletter sent to ${recipients.length} subscribers: ${info.messageId}`
+      );
     } catch (error) {
       console.error("Error processing newsletter:", error);
     }
