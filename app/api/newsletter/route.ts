@@ -9,7 +9,7 @@ import {
   formatRawBody,
   type FormattedArticles,
 } from "@/lib/email";
-import { recipients } from "@/app/constants/recipients";
+import { recipients } from "@/constants/recipients";
 import { getDateString, getTime } from "@/lib/date";
 
 export async function GET(req: NextRequest, res: NextResponse) {

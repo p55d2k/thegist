@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import { parseStringPromise } from "xml2js";
 
-import { links } from "@/app/constants/links";
+import { links } from "@/constants/links";
 
 export async function GET(req: NextRequest) {
   revalidatePath("/api/news");
