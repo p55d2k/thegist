@@ -11,108 +11,131 @@ export async function GET(req: NextRequest) {
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   const groupedResults = await Promise.all(
-    links.map(async ({ topic, slug, publisher, url, commentaryPrefix }) => {
-      try {
-        const response = await axios.get(url, {
-          headers: { "User-Agent": "Mozilla/5.0" },
-        });
-        const result = await parseStringPromise(response.data);
+    links.map(
+      async ({
+        topic,
+        slug,
+        publisher,
+        url,
+        commentaryPrefix,
+        sectionHints,
+      }) => {
+        const normalizedHints: NewsletterSectionHint[] = sectionHints ?? [];
+        try {
+          const response = await axios.get(url, {
+            headers: { "User-Agent": "Mozilla/5.0" },
+          });
+          const result = await parseStringPromise(response.data);
 
-        const channel = result.rss?.channel?.[0];
-        const channelTitle = channel?.title?.[0] || `${publisher} ${topic}`;
-        const items = (channel?.item ?? []) as (RSSItem &
-          Record<string, unknown>)[];
+          const channel = result.rss?.channel?.[0];
+          const channelTitle = channel?.title?.[0] || `${publisher} ${topic}`;
+          const items = (channel?.item ?? []) as (RSSItem &
+            Record<string, unknown>)[];
 
-        const seenLinks = new Set<string>();
-        const processed: ProcessedNewsItem[] = [];
+          const seenLinks = new Set<string>();
+          const processed: ProcessedNewsItem[] = [];
 
-        for (const item of items) {
-          const link = extractText(item.link);
-          if (!link || seenLinks.has(link)) {
-            continue;
+          for (const item of items) {
+            const link = extractText(item.link);
+            if (!link || seenLinks.has(link)) {
+              continue;
+            }
+
+            const title = extractText(item.title);
+            if (!title) {
+              continue;
+            }
+
+            if (commentaryPrefix && !title.startsWith(commentaryPrefix)) {
+              continue;
+            }
+
+            const pubDateRaw = extractText(item.pubDate);
+            if (!pubDateRaw) {
+              continue;
+            }
+
+            const pubDate = new Date(pubDateRaw);
+            if (
+              Number.isNaN(pubDate.getTime()) ||
+              pubDate < twentyFourHoursAgo
+            ) {
+              continue;
+            }
+
+            seenLinks.add(link);
+
+            const description = extractText(item.description) ?? "";
+            const imageUrl = extractImageUrl(item);
+
+            processed.push({
+              title,
+              description,
+              link,
+              pubDate,
+              source: channelTitle,
+              publisher,
+              topic,
+              slug,
+              imageUrl,
+              sectionHints: normalizedHints,
+            });
           }
 
-          const title = extractText(item.title);
-          if (!title) {
-            continue;
+          processed.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+
+          if (processed.length === 0) {
+            return null;
           }
 
-          if (commentaryPrefix && !title.startsWith(commentaryPrefix)) {
-            continue;
-          }
-
-          const pubDateRaw = extractText(item.pubDate);
-          if (!pubDateRaw) {
-            continue;
-          }
-
-          const pubDate = new Date(pubDateRaw);
-          if (Number.isNaN(pubDate.getTime()) || pubDate < twentyFourHoursAgo) {
-            continue;
-          }
-
-          seenLinks.add(link);
-
-          const description = extractText(item.description) ?? "";
-          const imageUrl = extractImageUrl(item);
-
-          processed.push({
-            title,
-            description,
-            link,
-            pubDate,
-            source: channelTitle,
-            publisher,
+          return {
             topic,
             slug,
-            imageUrl,
-          });
-        }
-
-        processed.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
-
-        if (processed.length === 0) {
+            publisher,
+            sectionHints: normalizedHints,
+            items: processed,
+          } satisfies TopicNewsGroup;
+        } catch (error) {
+          console.error(`Error fetching RSS from ${url}:`, error);
           return null;
         }
-
-        return {
-          topic,
-          slug,
-          publisher,
-          items: processed,
-        } satisfies TopicNewsGroup;
-      } catch (error) {
-        console.error(`Error fetching RSS from ${url}:`, error);
-        return null;
       }
-    })
+    )
   );
 
   const seenGlobal = new Set<string>();
-  const topics = groupedResults
-    .filter((group): group is TopicNewsGroup => !!group)
-    .map((group) => {
-      const uniqueItems = group.items.filter((item) => {
-        if (seenGlobal.has(item.link)) {
-          return false;
-        }
-        seenGlobal.add(item.link);
-        return true;
-      });
+  const topics: TopicNewsGroup[] = [];
 
-      return {
-        ...group,
-        items: uniqueItems,
-      };
-    })
-    .filter((group) => group.items.length > 0)
-    .sort((a, b) => {
-      const publisherCompare = a.publisher.localeCompare(b.publisher);
-      if (publisherCompare !== 0) {
-        return publisherCompare;
+  for (const group of groupedResults) {
+    if (!group) {
+      continue;
+    }
+
+    const uniqueItems = group.items.filter((item) => {
+      if (seenGlobal.has(item.link)) {
+        return false;
       }
-      return a.topic.localeCompare(b.topic);
+      seenGlobal.add(item.link);
+      return true;
     });
+
+    if (uniqueItems.length === 0) {
+      continue;
+    }
+
+    topics.push({
+      ...group,
+      items: uniqueItems,
+    });
+  }
+
+  topics.sort((a, b) => {
+    const publisherCompare = a.publisher.localeCompare(b.publisher);
+    if (publisherCompare !== 0) {
+      return publisherCompare;
+    }
+    return a.topic.localeCompare(b.topic);
+  });
 
   const allNews = topics.flatMap((group) => group.items);
 

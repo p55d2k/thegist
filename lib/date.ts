@@ -40,7 +40,7 @@ export const getTime = (): string => {
 
 export const getTimeBasedGreeting = (): string => {
   const today = new Date();
-  today.setHours(today.getHours());
+  today.setHours(today.getHours() + 8); // Adjust for GMT+8
   const hour = today.getHours();
 
   if (hour <= 12) {

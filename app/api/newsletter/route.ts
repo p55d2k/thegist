@@ -31,25 +31,18 @@ export async function GET(req: NextRequest, res: NextResponse) {
     topic: string;
     slug: string;
     publisher: string;
+    sectionHints: NewsletterSectionHint[];
     items: SerializedProcessedNewsItem[];
   };
 
   const serializedTopics = (aggregatedResponse.data?.topics ??
     []) as SerializedTopicNewsGroup[];
 
-  const seenLinks = new Set<string>();
-
   const commentaryGroups = serializedTopics
     .map((group) => {
       const items: ProcessedNewsItem[] = [];
 
       group.items.forEach((item) => {
-        if (seenLinks.has(item.link)) {
-          return;
-        }
-
-        seenLinks.add(item.link);
-
         const pubDate = new Date(item.pubDate);
         if (Number.isNaN(pubDate.getTime())) {
           return;
@@ -58,6 +51,7 @@ export async function GET(req: NextRequest, res: NextResponse) {
         items.push({
           ...item,
           pubDate,
+          sectionHints: item.sectionHints ?? [],
         });
       });
 
@@ -69,45 +63,30 @@ export async function GET(req: NextRequest, res: NextResponse) {
         topic: group.topic,
         slug: group.slug,
         publisher: group.publisher,
+        sectionHints: group.sectionHints ?? [],
         items,
       } as TopicNewsGroup;
     })
     .filter((group): group is TopicNewsGroup => !!group);
 
-  const formattedArticles: FormattedArticles = formatArticles(commentaryGroups);
+  // Calculate basic summary before processing
+  const totalTopics = commentaryGroups.length;
+  const totalArticles = commentaryGroups.reduce(
+    (sum, group) => sum + group.items.length,
+    0
+  );
+  const totalPublishers = new Set(
+    commentaryGroups.map((group) => group.publisher)
+  ).size;
 
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-    auth: {
-      user: process.env.GOOGLE_USER_EMAIL,
-      pass: process.env.GOOGLE_APP_PASSWORD,
-    },
-  });
-
-  const id = Math.random().toString(36).substring(7);
-
-  const data = {
-    from: `"ZK's ${getTime()} Commentary Newsletter" <${
-      process.env.GOOGLE_USER_EMAIL
-    }>`,
-    to: process.env.GOOGLE_USER_EMAIL,
-    bcc: recipients.join(", "),
-    subject: `Commentary Newsletter - ${getDateString()} | ID: ${id}`,
-    text: formatRawBody(formattedArticles, id),
-    html: formatBody(formattedArticles, id),
-  };
-  let info = await transporter.sendMail(data);
-
+  // Respond immediately to avoid cron timeout
   const response = NextResponse.json(
     {
-      message: `Message sent: ${info.messageId}`,
-      ...data,
+      message: "Newsletter generation and sending started",
       summary: {
-        totalArticles: formattedArticles.totalArticles,
-        totalTopics: formattedArticles.totalTopics,
-        totalPublishers: formattedArticles.totalPublishers,
+        totalArticles,
+        totalTopics,
+        totalPublishers,
       },
     },
     { status: 200 }
@@ -120,6 +99,45 @@ export async function GET(req: NextRequest, res: NextResponse) {
   response.headers.set("Pragma", "no-cache");
   response.headers.set("Expires", "0");
   response.headers.set("Surrogate-Control", "no-store");
+
+  // Process newsletter in background
+  process.nextTick(async () => {
+    try {
+      const formattedArticles: FormattedArticles = await formatArticles(
+        commentaryGroups
+      );
+
+      const transporter = nodemailer.createTransport({
+        host: "smtp.gmail.com",
+        port: 465,
+        secure: true,
+        auth: {
+          user: process.env.GOOGLE_USER_EMAIL,
+          pass: process.env.GOOGLE_APP_PASSWORD,
+        },
+      });
+
+      const id = crypto
+        .getRandomValues(new Uint32Array(1))[0]
+        .toString(36)
+        .padStart(8, "0")
+        .slice(0, 8);
+
+      const data = {
+        from: `"ZK Daily Intelligence Brief" <${process.env.GOOGLE_USER_EMAIL}>`,
+        to: process.env.GOOGLE_USER_EMAIL,
+        bcc: recipients.join(", "),
+        subject: `ZK Daily Intelligence Brief - ${getDateString()} | ID: ${id}`,
+        text: formatRawBody(formattedArticles, id),
+        html: formatBody(formattedArticles, id),
+      };
+
+      let info = await transporter.sendMail(data);
+      console.log(`Newsletter sent: ${info.messageId}`);
+    } catch (error) {
+      console.error("Error processing newsletter:", error);
+    }
+  });
 
   return response;
 }

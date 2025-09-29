@@ -1,15 +1,79 @@
+import { generateNewsletterPlan } from "@/lib/gemini";
 import { getGreeting, getTime, getTimeBasedGreeting } from "@/lib/date";
 
 export interface FormattedArticles {
+  plan: GeminiNewsletterPlan;
   html: string;
   text: string;
   totalTopics: number;
   totalArticles: number;
   totalPublishers: number;
+  aiMetadata: {
+    model: string;
+    usedFallback: boolean;
+    fallbackReason?: string;
+  };
 }
 
+const SECTION_COPY: Record<
+  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+  { title: string; subtitle: string }
+> = {
+  commentaries: {
+    title: "Commentaries",
+    subtitle: "Top 5-7 analysis pieces offering sharp perspective.",
+  },
+  international: {
+    title: "International main news",
+    subtitle: "Top 2-3 global developments to monitor.",
+  },
+  politics: {
+    title: "Politics",
+    subtitle: "Top 2-3 policy, governance or campaign moves.",
+  },
+  businessAndTech: {
+    title: "Business & tech",
+    subtitle: "Top 2-3 market, corporate or technology signals.",
+  },
+  wildCard: {
+    title: "Wild card / special",
+    subtitle: "One contrarian or unexpected read to stretch thinking.",
+  },
+};
+
+const decodeHtmlEntities = (value: string): string => {
+  const namedEntities: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+  };
+
+  return value.replace(
+    /&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g,
+    (_, entity: string) => {
+      if (entity.startsWith("#x") || entity.startsWith("#X")) {
+        const codePoint = Number.parseInt(entity.slice(2), 16);
+        return Number.isNaN(codePoint) ? _ : String.fromCodePoint(codePoint);
+      }
+      if (entity.startsWith("#")) {
+        const codePoint = Number.parseInt(entity.slice(1), 10);
+        return Number.isNaN(codePoint) ? _ : String.fromCodePoint(codePoint);
+      }
+      return namedEntities[entity] ?? _;
+    }
+  );
+};
+
 const stripHtml = (value: string): string =>
-  value.replace(/<[^>]*>/g, "").trim();
+  decodeHtmlEntities(
+    value
+      .replace(/<[^>]*>/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 
 const truncate = (value: string, length = 220): string =>
   value.length > length ? `${value.slice(0, length - 1)}…` : value;
@@ -28,285 +92,359 @@ const formatDate = (date: Date): string =>
     timeStyle: "short",
   }).format(date);
 
-const buildHtmlSections = (topics: TopicNewsGroup[]): string => {
-  if (topics.length === 0) {
-    return `<div class="empty-state">
-      <p>No fresh commentary pieces were available across your sources in the last 24 hours. We'll keep listening for the next update!</p>
-    </div>`;
-  }
+const formatMeta = (item: NewsletterSectionItem): string => {
+  const formattedDate = formatDate(new Date(item.pubDate));
+  return `${escapeHtml(item.publisher)} · ${escapeHtml(
+    item.topic
+  )} · ${escapeHtml(formattedDate)}`;
+};
 
-  return topics
-    .map((group) => {
-      const publisher = escapeHtml(group.publisher);
-      const topic = escapeHtml(group.topic);
-      const cards = group.items
-        .map((article) => {
-          const cleanDescription = truncate(stripHtml(article.description));
-          const formattedDate = formatDate(article.pubDate);
-          const title = escapeHtml(article.title);
-          const description = escapeHtml(cleanDescription);
-          const link = escapeHtml(article.link);
+const renderHighlightCard = (
+  item: NewsletterSectionItem,
+  index: number
+): string => {
+  return `<article style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin-bottom: 12px;">
+    <span style="font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">#${
+      index + 1
+    }</span>
+    <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 12px 0;">${escapeHtml(
+      item.title
+    )}</h3>
+    <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 12px 0;">${escapeHtml(
+      truncate(stripHtml(item.summary), 200)
+    )}</p>
+    <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+      item.link
+    )}">Read more</a>
+    <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+      item
+    )}</div>
+  </article>`;
+};
 
-          const imageSrc = article.imageUrl
-            ? escapeHtml(article.imageUrl)
-            : null;
-
-          const imageMarkup = imageSrc
-            ? `<div class="article-image">
-                <img src="${imageSrc}" alt="${title}" width="260" height="160" style="display:block;width:100%;height:auto;border-radius:12px 12px 0 0;object-fit:cover;" />
-              </div>`
-            : "";
-
-          return `<article class="article-card">
-              ${imageMarkup}
-              <div class="article-content">
-                <h3>${title}</h3>
-                <p>${description}</p>
-                <a class="cta" href="${link}">Read full story</a>
-                <div class="meta">Published ${formattedDate} · ${escapeHtml(
-            article.source
-          )}</div>
-              </div>
-            </article>`;
-        })
-        .join("");
-
-      return `<section class="topic-section">
-        <div class="topic-header">
-          <span class="publisher-tag">${publisher}</span>
-          <h2>${topic}</h2>
-        </div>
-        <div class="card-grid">${cards}</div>
-      </section>`;
-    })
+const renderSectionCards = (items: NewsletterSectionItem[]): string =>
+  items
+    .map(
+      (
+        item
+      ) => `<article style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 0 0 12px 0;">${escapeHtml(
+          item.title
+        )}</h3>
+        <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 12px 0;">${escapeHtml(
+          truncate(stripHtml(item.summary))
+        )}</p>
+        <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+          item.link
+        )}">Open story</a>
+        <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+          item
+        )}</div>
+    </article>`
+    )
     .join("");
-};
 
-const buildTextSections = (topics: TopicNewsGroup[]): string => {
-  if (topics.length === 0) {
-    return "No fresh commentary pieces were available across your sources in the last 24 hours.";
+const renderSection = (
+  key: keyof typeof SECTION_COPY,
+  items: NewsletterSectionItem[]
+): string => {
+  if (items.length === 0) {
+    return "";
   }
 
-  return topics
-    .map((group) => {
-      const entries = group.items
-        .map((article, index) => {
-          const cleanDescription = truncate(stripHtml(article.description));
-          return `${index + 1}. ${article.title}
-${cleanDescription}
-${article.link}`;
-        })
-        .join("\n\n");
+  const { title, subtitle } = SECTION_COPY[key];
 
-      const heading = `${group.publisher.toUpperCase()} • ${group.topic.toUpperCase()}`;
-      return `${heading}\n${entries}`;
-    })
-    .join("\n\n");
+  return `<section style="margin-bottom: 32px; border-top: 1px solid #e2e8f0; padding-top: 32px;">
+    <div style="margin-bottom: 16px;">
+      <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">${escapeHtml(
+        title
+      )}</h2>
+      <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+        subtitle
+      )}</p>
+    </div>
+    <div>${renderSectionCards(items)}</div>
+  </section>`;
 };
 
-export const formatArticles = (topics: TopicNewsGroup[]): FormattedArticles => {
-  const totalArticles = topics.reduce(
-    (sum, group) => sum + group.items.length,
-    0
-  );
+const renderWildCard = (items: NewsletterSectionItem[]): string => {
+  if (items.length === 0) {
+    return "";
+  }
 
-  const publisherCount = new Set(topics.map((group) => group.publisher)).size;
+  const [item] = items;
 
-  return {
-    html: buildHtmlSections(topics),
-    text: buildTextSections(topics),
-    totalTopics: topics.length,
+  return `<section style="margin-bottom: 32px; border-top: 1px solid #e2e8f0; padding-top: 32px;">
+    <div style="margin-bottom: 16px;">
+      <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">${escapeHtml(
+        SECTION_COPY.wildCard.title
+      )}</h2>
+      <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+        SECTION_COPY.wildCard.subtitle
+      )}</p>
+    </div>
+    <article style="background-color: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px;">
+      <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 0 0 12px 0;">${escapeHtml(
+        item.title
+      )}</h3>
+      <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 12px 0;">${escapeHtml(
+        truncate(stripHtml(item.summary), 260)
+      )}</p>
+      <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+        item.link
+      )}">Explore the wildcard</a>
+      <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+        item
+      )}</div>
+    </article>
+  </section>`;
+};
+
+const buildHtml = (formatted: FormattedArticles): string => {
+  const {
+    plan: {
+      essentialReads,
+      commentaries,
+      international,
+      politics,
+      businessAndTech,
+      wildCard,
+      summary,
+    },
     totalArticles,
-    totalPublishers: publisherCount,
+    totalTopics,
+    totalPublishers,
+    aiMetadata,
+  } = formatted;
+
+  const aiBadge = aiMetadata.usedFallback
+    ? `Structured with heuristics${
+        aiMetadata.fallbackReason
+          ? ` (${escapeHtml(aiMetadata.fallbackReason)})`
+          : ""
+      }`
+    : `AI-assisted via ${escapeHtml(aiMetadata.model)}`;
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        /* Email-safe styles */
+        body {
+          margin: 0;
+          padding: 0;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        .email-container {
+          max-width: 680px;
+          margin: 0 auto;
+          padding: 0 24px;
+        }
+        .summary-separator {
+          opacity: 0.6;
+        }
+        @media only screen and (max-width: 640px) {
+          .email-container {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
+          }
+        }
+      </style>
+    </head>
+    <body style="background-color: #f8fafc; padding: 40px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #0f172a; margin: 0;">
+      <div class="email-container">
+        <main style="overflow: hidden; border-radius: 12px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+          <header style="margin-bottom: 32px; text-align: center;">
+            <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
+              ZK Daily Intelligence Brief
+            </h1>
+            <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
+              Good ${getGreeting()}! ${getTimeBasedGreeting()} Let's dive into today's essential reads.
+            </p>
+            <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
+              <span>${totalArticles} articles</span>
+              <span class="summary-separator" style="color: #94a3b8;">•</span>
+              <span>${totalTopics} topics</span>
+              <span class="summary-separator" style="color: #94a3b8;">•</span>
+              <span>${totalPublishers} publishers</span>
+            </div>
+          </header>
+          
+          <div style="margin-bottom: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 16px; font-size: 14px; line-height: 1.5; color: #334155;">
+            ${escapeHtml(summary)}
+          </div>
+          
+          <section style="margin-bottom: 32px;">
+            <div style="margin-bottom: 16px;">
+              <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">Today's essential reads</h2>
+              <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+                essentialReads.overview
+              )}</p>
+            </div>
+            <div>
+              ${essentialReads.highlights
+                .map((item, index) => renderHighlightCard(item, index))
+                .join("")}
+            </div>
+          </section>
+          
+          ${renderSection("commentaries", commentaries)}
+          ${renderSection("international", international)}
+          ${renderSection("politics", politics)}
+          ${renderSection("businessAndTech", businessAndTech)}
+          ${renderWildCard(wildCard)}
+          
+          <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
+            <p style="margin: 0 0 16px 0;">With appreciation,<br/>ZK Daily Intelligence Team</p>
+            <span style="display: inline-block; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
+              ${aiBadge}
+            </span>
+          </footer>
+        </main>
+      </div>
+    </body>
+  </html>`;
+};
+
+const buildText = (formatted: FormattedArticles): string => {
+  const {
+    plan: {
+      essentialReads,
+      commentaries,
+      international,
+      politics,
+      businessAndTech,
+      wildCard,
+      summary,
+    },
+    totalArticles,
+    totalTopics,
+    totalPublishers,
+    aiMetadata,
+  } = formatted;
+
+  const sectionToText = (
+    title: string,
+    items: NewsletterSectionItem[],
+    label: string
+  ): string => {
+    if (items.length === 0) {
+      return "";
+    }
+
+    const heading = `${title.toUpperCase()} (${label})`;
+    const entries = items
+      .map((item, index) => {
+        const description = truncate(stripHtml(item.summary));
+        return `${index + 1}. ${item.title}\n${description}\n${item.link}`;
+      })
+      .join("\n\n");
+
+    return `${heading}\n${entries}`;
   };
+
+  const highlights = essentialReads.highlights
+    .map((item, index) => {
+      const description = truncate(stripHtml(item.summary));
+      return `${index + 1}. ${item.title} — ${description} (${item.link})`;
+    })
+    .join("\n");
+
+  const textSections = [
+    `SUMMARY\n${summary}`,
+    `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
+    sectionToText("Commentaries", commentaries, "Top 5-7"),
+    sectionToText("International main news", international, "Top 2-3"),
+    sectionToText("Politics", politics, "Top 2-3"),
+    sectionToText("Business & tech", businessAndTech, "Top 2-3"),
+    sectionToText("Wild card / special", wildCard, "1 unexpected"),
+    `Totals: ${totalArticles} articles · ${totalTopics} topics · ${totalPublishers} publishers` +
+      (aiMetadata.usedFallback
+        ? `\nStructured with heuristics${
+            aiMetadata.fallbackReason ? ` (${aiMetadata.fallbackReason})` : ""
+          }`
+        : `\nAI-assisted via ${aiMetadata.model}`),
+  ].filter(Boolean);
+
+  return textSections.join("\n\n");
+};
+
+export const formatArticles = async (
+  topics: TopicNewsGroup[]
+): Promise<FormattedArticles> => {
+  const seenLinks = new Set<string>();
+  const uniqueArticles: ProcessedNewsItem[] = [];
+
+  for (const group of topics) {
+    for (const item of group.items) {
+      if (seenLinks.has(item.link)) {
+        continue;
+      }
+      seenLinks.add(item.link);
+      uniqueArticles.push(item);
+    }
+  }
+
+  uniqueArticles.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+
+  const { plan, metadata } = await generateNewsletterPlan(uniqueArticles);
+
+  const totalTopics = topics.length;
+  const totalArticles = uniqueArticles.length;
+  const totalPublishers = new Set(topics.map((group) => group.publisher)).size;
+
+  const formatted: FormattedArticles = {
+    plan,
+    html: "",
+    text: "",
+    totalTopics,
+    totalArticles,
+    totalPublishers,
+    aiMetadata: metadata,
+  };
+
+  formatted.html = buildHtml(formatted);
+  formatted.text = buildText(formatted);
+
+  return formatted;
 };
 
 export const formatRawBody = (
   formattedArticles: FormattedArticles,
   id: string
 ): string => {
-  const intro = `${getTimeBasedGreeting()} Here are ${
-    formattedArticles.totalArticles
-  } curated commentaries from ${
-    formattedArticles.totalTopics
-  } topic feeds across ${formattedArticles.totalPublishers} publishers.`;
+  const intro = `${getTimeBasedGreeting()} We've curated ${
+    formattedArticles.plan.commentaries.length +
+    formattedArticles.plan.international.length +
+    formattedArticles.plan.politics.length +
+    formattedArticles.plan.businessAndTech.length +
+    formattedArticles.plan.wildCard.length
+  } standout pieces today.`;
 
   return `Good ${getGreeting()}!\n\n${intro}\n\n${
     formattedArticles.text
-  }\n\nBest Regards,\nZK's ${getTime()} Commentary Newsletter\n\nID: ${id}`;
+  }\n\nBest regards,\nZK Daily Intelligence Team\n${
+    formattedArticles.aiMetadata.usedFallback
+      ? `Structured with heuristics${
+          formattedArticles.aiMetadata.fallbackReason
+            ? ` (${formattedArticles.aiMetadata.fallbackReason})`
+            : ""
+        }\n`
+      : `AI-assisted via ${formattedArticles.aiMetadata.model}\n`
+  }ID: ${id}`;
 };
 
 export const formatBody = (
   formattedArticles: FormattedArticles,
   id: string
 ): string => {
-  return `<!DOCTYPE html>
-    <html>
-    <head>
-      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <style>
-        body {
-          margin: 0;
-          padding: 16px 0;
-          background-color: #f3f4f7;
-          font-family: Arial, 'Helvetica Neue', sans-serif;
-          color: #2b3142;
-        }
-        .container {
-          max-width: 640px;
-          margin: 0 auto;
-          padding: 0 20px;
-        }
-        .newsletter-card {
-          background: #ffffff;
-          border: 1px solid #e2e6ef;
-          border-radius: 18px;
-          box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-          padding: 28px 26px;
-        }
-        .header {
-          text-align: center;
-          margin-bottom: 20px;
-        }
-        .header h1 {
-          margin: 0;
-          font-size: 24px;
-          font-weight: 600;
-          color: #182033;
-        }
-        .header p {
-          margin: 10px 0 0;
-          color: #4a5264;
-          font-size: 15px;
-          line-height: 1.45;
-        }
-        .summary {
-          display: inline-block;
-          padding: 6px 12px;
-          margin-top: 14px;
-          border-radius: 12px;
-          background: #eef1fb;
-          color: #3e4b87;
-          font-weight: 600;
-          font-size: 13px;
-        }
-        .topic-section {
-          margin-top: 24px;
-          border-top: 1px solid #edf0f6;
-          padding-top: 20px;
-        }
-        .topic-header {
-          margin-bottom: 14px;
-        }
-        .topic-header h2 {
-          margin: 6px 0 0;
-          font-size: 18px;
-          font-weight: 600;
-          color: #1d2536;
-        }
-        .publisher-tag {
-          display: inline-block;
-          font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.08em;
-          color: #3e4b87;
-          text-transform: uppercase;
-        }
-        .card-grid {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 16px;
-        }
-        .article-card {
-          background: #fafbff;
-          border-radius: 14px;
-          overflow: hidden;
-          border: 1px solid #e6e9f4;
-        }
-        .article-card .article-content {
-          padding: 18px 20px 20px;
-        }
-        .article-card h3 {
-          margin: 0 0 8px;
-          font-size: 17px;
-          line-height: 1.4;
-          color: #1d2536;
-        }
-        .article-card p {
-          margin: 0;
-          font-size: 14px;
-          line-height: 1.55;
-          color: #4b5368;
-        }
-        .cta {
-          display: inline-block;
-          margin-top: 14px;
-          padding: 9px 14px;
-          border-radius: 8px;
-          background: #3e4b87;
-          color: #ffffff !important;
-          font-size: 13px;
-          font-weight: 600;
-          text-decoration: none;
-        }
-        .meta {
-          margin-top: 10px;
-          font-size: 12px;
-          color: #6d7488;
-        }
-        .empty-state {
-          background: #f9faff;
-          border: 1px dashed #cbd3eb;
-          border-radius: 14px;
-          padding: 22px;
-          text-align: center;
-          color: #4a5264;
-        }
-        .footer {
-          margin-top: 28px;
-          text-align: center;
-          font-size: 13px;
-          color: #717a90;
-        }
-        .footer small {
-          display: block;
-          margin-top: 8px;
-          color: #a2a9c0;
-        }
-        @media only screen and (max-width: 640px) {
-          body {
-            padding: 0;
-            background: #ffffff;
-          }
-          .newsletter-card {
-            border-radius: 0;
-            border: none;
-            box-shadow: none;
-            padding: 24px 18px;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="newsletter-card">
-          <div class="header">
-            <h1>Good ${getGreeting()}!</h1>
-            <p>${getTimeBasedGreeting()} Here's a quick look at today's commentary picks.</p>
-            <span class="summary">${
-              formattedArticles.totalArticles
-            } commentaries · ${formattedArticles.totalTopics} topics · ${
-    formattedArticles.totalPublishers
-  } sources</span>
-          </div>
-          ${formattedArticles.html}
-          <div class="footer">
-            <p>Kind regards,<br/>ZK's ${getTime()} Commentary Newsletter</p>
-            <small>ID: ${id}</small>
-          </div>
-        </div>
-      </div>
-    </body>
-  </html>`;
+  const html = buildHtml(formattedArticles);
+  return html.replace(
+    "</footer>",
+    `<small style="display:block;margin-top:12px;color:#b3bad0;">ID: ${escapeHtml(
+      id
+    )}</small></footer>`
+  );
 };

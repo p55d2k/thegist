@@ -16,6 +16,7 @@ interface ProcessedNewsItem {
   topic: string;
   slug: string;
   imageUrl?: string;
+  sectionHints: NewsletterSectionHint[];
 }
 
 interface NewsItem {
@@ -30,11 +31,45 @@ interface TopicLink {
   slug: string;
   url: string;
   commentaryPrefix?: string;
+  sectionHints?: NewsletterSectionHint[];
 }
 
 interface TopicNewsGroup {
   topic: string;
   slug: string;
   publisher: string;
+  sectionHints: NewsletterSectionHint[];
   items: ProcessedNewsItem[];
+}
+
+type NewsletterSectionHint =
+  | "commentaries"
+  | "international"
+  | "politics"
+  | "business-tech"
+  | "wildcard";
+
+interface NewsletterSectionItem {
+  title: string;
+  summary: string;
+  link: string;
+  publisher: string;
+  topic: string;
+  slug: string;
+  source: string;
+  pubDate: string;
+  sectionHints: NewsletterSectionHint[];
+}
+
+interface GeminiNewsletterPlan {
+  essentialReads: {
+    overview: string;
+    highlights: NewsletterSectionItem[];
+  };
+  commentaries: NewsletterSectionItem[];
+  international: NewsletterSectionItem[];
+  politics: NewsletterSectionItem[];
+  businessAndTech: NewsletterSectionItem[];
+  wildCard: NewsletterSectionItem[];
+  summary: string;
 }
