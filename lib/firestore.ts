@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
+import { v4 as uuidv4 } from "uuid";
 
 export interface Subscriber {
   email: string;
@@ -50,12 +51,8 @@ export interface EmailSendStatus {
 }
 
 const SEND_COLLECTION = "emailSends";
-const ID_CHARS = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-const generateSendId = (length = 12): string =>
-  Array.from(crypto.getRandomValues(new Uint8Array(length)))
-    .map((byte) => ID_CHARS[byte % ID_CHARS.length])
-    .join("");
+const generateSendId = (): string => uuidv4();
 
 const toDate = (value?: Date | Timestamp): Date | undefined => {
   if (!value) {
