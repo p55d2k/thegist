@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 
 interface EmailSendStatus {
@@ -35,27 +35,43 @@ export default function StatusPage() {
   const [searchId, setSearchId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(
-    null
-  );
+  const [hasPendingSends, setHasPendingSends] = useState(false);
 
-  const fetchRecentSends = async () => {
-    try {
-      const response = await fetch("/api/status");
-      const data: StatusResponse = await response.json();
+  const fetchRecentSends = useCallback(
+    async (options?: { showLoading?: boolean }) => {
+      const showLoading = options?.showLoading ?? false;
 
-      if (data.error) {
-        setError(data.error);
-      } else if (data.recentSends) {
-        setRecentSends(data.recentSends);
-        setError("");
+      if (showLoading) {
+        setLoading(true);
       }
-    } catch (err) {
-      setError("Failed to fetch recent sends");
-    } finally {
-      setLoading(false);
-    }
-  };
+
+      try {
+        const response = await fetch("/api/status");
+        const data: StatusResponse = await response.json();
+
+        if (data.error) {
+          setError(data.error);
+          setHasPendingSends(false);
+        } else if (data.recentSends) {
+          setRecentSends(data.recentSends);
+          setError("");
+
+          const pending = data.recentSends.some(
+            (send) => send.status === "pending"
+          );
+          setHasPendingSends(pending);
+        } else {
+          setHasPendingSends(false);
+        }
+      } catch (err) {
+        setError("Failed to fetch recent sends");
+        setHasPendingSends(false);
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const searchById = async () => {
     if (!searchId.trim()) return;
@@ -116,22 +132,20 @@ export default function StatusPage() {
   };
 
   useEffect(() => {
-    fetchRecentSends();
+    void fetchRecentSends({ showLoading: true });
+  }, [fetchRecentSends]);
 
-    // Auto-refresh every 30 seconds for pending statuses
+  useEffect(() => {
+    if (!hasPendingSends) {
+      return;
+    }
+
     const interval = setInterval(() => {
-      const hasPending = recentSends.some((send) => send.status === "pending");
-      if (hasPending) {
-        fetchRecentSends();
-      }
+      void fetchRecentSends();
     }, 30000);
 
-    setRefreshInterval(interval);
-
-    return () => {
-      if (refreshInterval) clearInterval(refreshInterval);
-    };
-  }, [recentSends]);
+    return () => clearInterval(interval);
+  }, [fetchRecentSends, hasPendingSends]);
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
@@ -181,7 +195,7 @@ export default function StatusPage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.3 }}
-          onClick={fetchRecentSends}
+          onClick={() => fetchRecentSends({ showLoading: true })}
           disabled={loading}
           className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-sm font-medium hover:bg-gray-200 disabled:opacity-50"
         >
