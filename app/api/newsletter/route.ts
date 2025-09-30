@@ -1,6 +1,7 @@
 import axios from "axios";
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import nodemailer from "nodemailer";
 
 import {
@@ -16,7 +17,9 @@ import {
 } from "@/lib/firestore";
 import { getDateString, getTime } from "@/lib/date";
 
-export async function GET(req: NextRequest, res: NextResponse) {
+export const maxDuration = 60;
+
+export async function GET(req: NextRequest) {
   revalidatePath("/api/newsletter");
 
   const newsApiUrl = new URL("/api/news", req.nextUrl.origin).toString();
@@ -111,8 +114,7 @@ export async function GET(req: NextRequest, res: NextResponse) {
   response.headers.set("Expires", "0");
   response.headers.set("Surrogate-Control", "no-store");
 
-  // Process newsletter in background
-  process.nextTick(async () => {
+  async function processNewsletterSend() {
     let errorDetails = "";
     let recipientCount = 0;
 
@@ -255,7 +257,14 @@ export async function GET(req: NextRequest, res: NextResponse) {
         );
       }
     }
-  });
+  }
+
+  // Kick off newsletter processing without blocking the response
+  if (process.env.VERCEL) {
+    waitUntil(processNewsletterSend());
+  } else {
+    void processNewsletterSend();
+  }
 
   return response;
 }

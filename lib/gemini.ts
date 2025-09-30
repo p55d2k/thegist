@@ -323,6 +323,11 @@ const buildFallbackPlan = (
   };
 };
 
+export const generateNewsletterPlanFallback = (
+  articles: ProcessedNewsItem[],
+  fallbackReason = "Fallback planner invoked"
+): PlanResult => buildFallbackPlan(articles, fallbackReason);
+
 const sanitizePlan = (
   candidate: unknown,
   articles: ProcessedNewsItem[]

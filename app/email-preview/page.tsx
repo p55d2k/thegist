@@ -1,4 +1,4 @@
-import { formatArticles, formatBody } from "@/lib/email";
+import { formatArticlesWithoutGemini, formatBody } from "@/lib/email";
 
 type SerializedProcessedNewsItem = Omit<ProcessedNewsItem, "pubDate"> & {
   pubDate: string;
@@ -168,7 +168,10 @@ const fetchTopics = async (): Promise<TopicNewsGroup[]> => {
 const EmailPreview = async () => {
   try {
     const topics = await fetchTopics();
-    const formatted = await formatArticles(topics);
+    const formatted = await formatArticlesWithoutGemini(
+      topics,
+      "Email preview rendered without Gemini"
+    );
     const htmlEmail = formatBody(formatted, "preview");
 
     return (

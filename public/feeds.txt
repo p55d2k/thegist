@@ -14,22 +14,22 @@ This file is a cleaned, annotated and (where possible) live-checked version of y
 ## SECTION A — COMMENTARY / OPINION (Free or contains commentary)
 
 [WORKS]
-**Channel NewsAsia | Asia** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6511` | **VERIFIED (publisher)** | CNA publishes a list of outbound RSS endpoints; this category appears on their official feed list.
+**ChannelNewsAsia | Asia** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6511` | **VERIFIED (publisher)** | CNA publishes a list of outbound RSS endpoints; this category appears on their official feed list.
 
 [WORKS]
-**Channel NewsAsia | Business** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6936` | **VERIFIED (publisher)** | As above.
+**ChannelNewsAsia | Business** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6936` | **VERIFIED (publisher)** | As above.
 
 [WORKS]
-**Channel NewsAsia | Latest** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml` | **VERIFIED (publisher)** | Company-wide latest feed.
+**ChannelNewsAsia | Latest** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml` | **VERIFIED (publisher)** | Company-wide latest feed.
 
 [WORKS]
-**Channel NewsAsia | Singapore** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416` | **VERIFIED (publisher)**
+**ChannelNewsAsia | Singapore** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10416` | **VERIFIED (publisher)**
 
 [WORKS]
-**Channel NewsAsia | Sport** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10296` | **VERIFIED (publisher)**
+**ChannelNewsAsia | Sport** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=10296` | **VERIFIED (publisher)**
 
 [WORKS]
-**Channel NewsAsia | World** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6311` | **VERIFIED (publisher)**
+**ChannelNewsAsia | World** | `https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6311` | **VERIFIED (publisher)**
 
 ---
 

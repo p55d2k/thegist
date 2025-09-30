@@ -11,6 +11,7 @@ A Next.js-based newsletter application that aggregates and emails curated commen
 - **Email Delivery**: Sends a responsive HTML newsletter with optional imagery plus a plaintext fallback.
 - **Email Preview**: Preview the newsletter HTML and plaintext content before sending via a dedicated page.
 - **Background Processing**: Newsletter generation and sending happens asynchronously to avoid timeouts.
+  (On Vercel this uses the `waitUntil` API to run processing after the response is returned.)
 - **API-Driven**: Provides RESTful endpoints for news aggregation and newsletter sending.
 - **Image Support**: Extracts and includes article images from RSS feeds where available.
 - **Subscriber Management**: Firebase-powered subscription system with email validation and storage.
@@ -90,6 +91,7 @@ The app will be available at `http://localhost:3000`.
 ### Email Preview
 
 Visit `http://localhost:3000/email-preview` to preview the newsletter content and styling before sending.
+Note: the preview page renders the newsletter using a local fallback planner (no Gemini API calls) to avoid making external AI requests during preview.
 
 ### Email Status Dashboard
 
@@ -141,7 +143,7 @@ Fetches and aggregates commentary articles from all configured RSS feeds.
     {
       "topic": "Latest",
       "slug": "cna-latest",
-      "publisher": "Channel NewsAsia",
+      "publisher": "ChannelNewsAsia",
       "sectionHints": ["international", "politics", "business-tech"],
       "items": [
         {

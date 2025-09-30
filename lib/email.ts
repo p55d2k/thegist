@@ -1,4 +1,8 @@
-import { getGreeting, getTime, getTimeBasedGreeting } from "@/lib/date";
+import {
+  generateNewsletterPlan,
+  generateNewsletterPlanFallback,
+} from "@/lib/gemini";
+import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
 
 export interface FormattedArticles {
   plan: GeminiNewsletterPlan;
@@ -370,9 +374,14 @@ const buildText = (formatted: FormattedArticles): string => {
   return textSections.join("\n\n");
 };
 
-export const formatArticles = async (
+type PlanGenerationResult = {
+  plan: GeminiNewsletterPlan;
+  metadata: FormattedArticles["aiMetadata"];
+};
+
+const collectUniqueArticles = (
   topics: TopicNewsGroup[]
-): Promise<FormattedArticles> => {
+): ProcessedNewsItem[] => {
   const seenLinks = new Set<string>();
   const uniqueArticles: ProcessedNewsItem[] = [];
 
@@ -388,121 +397,54 @@ export const formatArticles = async (
 
   uniqueArticles.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 
-  // Create fake newsletter plan instead of calling Gemini
-  const fakePlan: GeminiNewsletterPlan = {
-    essentialReads: {
-      overview:
-        "Today's essential reads cover fresh commentary on global politics, business developments, and unexpected insights from diverse perspectives.",
-      highlights: uniqueArticles.slice(0, 4).map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 200),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    },
-    commentaries: uniqueArticles
-      .filter((article) => article.sectionHints.includes("commentaries"))
-      .slice(0, 7)
-      .map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 220),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    international: uniqueArticles
-      .filter((article) => article.sectionHints.includes("international"))
-      .slice(0, 3)
-      .map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 220),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    politics: uniqueArticles
-      .filter((article) => article.sectionHints.includes("politics"))
-      .slice(0, 3)
-      .map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 220),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    businessAndTech: uniqueArticles
-      .filter((article) => article.sectionHints.includes("business-tech"))
-      .slice(0, 3)
-      .map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 220),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    wildCard: uniqueArticles
-      .filter((article) => article.sectionHints.includes("wildcard"))
-      .slice(0, 1)
-      .map((article) => ({
-        title: article.title,
-        summary: truncate(stripHtml(article.description), 260),
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      })),
-    summary:
-      "A curated mix of commentary, global developments, policy insights, market signals, and one wildcard piece to challenge conventional thinking.",
-  };
+  return uniqueArticles;
+};
 
-  const fakeMetadata = {
-    model: "fake-data-generator",
-    usedFallback: true,
-    fallbackReason: "Using fake data for development",
-  };
-
+const finalizeFormattedArticles = (
+  topics: TopicNewsGroup[],
+  uniqueArticles: ProcessedNewsItem[],
+  planResult: PlanGenerationResult
+): FormattedArticles => {
   const totalTopics = topics.length;
   const totalArticles = uniqueArticles.length;
   const totalPublishers = new Set(topics.map((group) => group.publisher)).size;
 
   const formatted: FormattedArticles = {
-    plan: fakePlan,
+    plan: planResult.plan,
     html: "",
     text: "",
     totalTopics,
     totalArticles,
     totalPublishers,
-    aiMetadata: fakeMetadata,
+    aiMetadata: planResult.metadata,
   };
 
   formatted.html = buildHtml(formatted);
   formatted.text = buildText(formatted);
 
   return formatted;
+};
+
+export const formatArticles = async (
+  topics: TopicNewsGroup[]
+): Promise<FormattedArticles> => {
+  const uniqueArticles = collectUniqueArticles(topics);
+  const planResult = await generateNewsletterPlan(uniqueArticles);
+
+  return finalizeFormattedArticles(topics, uniqueArticles, planResult);
+};
+
+export const formatArticlesWithoutGemini = async (
+  topics: TopicNewsGroup[],
+  fallbackReason = "Preview mode without Gemini"
+): Promise<FormattedArticles> => {
+  const uniqueArticles = collectUniqueArticles(topics);
+  const planResult = generateNewsletterPlanFallback(
+    uniqueArticles,
+    fallbackReason
+  );
+
+  return finalizeFormattedArticles(topics, uniqueArticles, planResult);
 };
 
 export const formatRawBody = (
