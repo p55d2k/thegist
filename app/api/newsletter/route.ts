@@ -1,7 +1,6 @@
 import axios from "axios";
 import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import nodemailer from "nodemailer";
 
 import {
@@ -17,9 +16,7 @@ import {
 } from "@/lib/firestore";
 import { getDateString, getTime } from "@/lib/date";
 
-export const maxDuration = 60;
-
-export async function GET(req: NextRequest) {
+export async function GET(req: NextRequest, res: NextResponse) {
   revalidatePath("/api/newsletter");
 
   const newsApiUrl = new URL("/api/news", req.nextUrl.origin).toString();
@@ -86,11 +83,10 @@ export async function GET(req: NextRequest) {
   ).size;
 
   // Generate unique ID for this email send
-  const sendId = crypto
-    .getRandomValues(new Uint32Array(1))[0]
-    .toString(36)
-    .padStart(8, "0")
-    .slice(0, 8);
+  const chars = "0123456789abcdefghijklmnopqrstuvwxyz";
+  const sendId = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+    .map((byte) => chars[byte % 36])
+    .join("");
 
   // Respond immediately to avoid cron timeout
   const response = NextResponse.json(
@@ -114,7 +110,8 @@ export async function GET(req: NextRequest) {
   response.headers.set("Expires", "0");
   response.headers.set("Surrogate-Control", "no-store");
 
-  async function processNewsletterSend() {
+  // Process newsletter in background
+  process.nextTick(async () => {
     let errorDetails = "";
     let recipientCount = 0;
 
@@ -257,14 +254,7 @@ export async function GET(req: NextRequest) {
         );
       }
     }
-  }
-
-  // Kick off newsletter processing without blocking the response
-  if (process.env.VERCEL) {
-    waitUntil(processNewsletterSend());
-  } else {
-    void processNewsletterSend();
-  }
+  });
 
   return response;
 }
