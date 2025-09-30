@@ -67,8 +67,10 @@ A Next.js-based newsletter application that aggregates and emails curated commen
    - `GOOGLE_APP_PASSWORD`: Generate an app password from Google Account settings (enable 2FA first).
    - `GEMINI_API_KEY`: Your Google Gemini API key for AI-powered curation.
 
-   **Firebase Configuration:**
-   Set up a Firebase project with Firestore database enabled for subscriber management.
+- `NEWSLETTER_JOB_TOKEN`: Shared secret used as a Bearer token for secured automation endpoints.
+
+  **Firebase Configuration:**
+  Set up a Firebase project with Firestore database enabled for subscriber management.
 
 4. ~~Configure recipients in `app/constants/recipients.ts`:~~
    ```typescript
@@ -131,7 +133,7 @@ bun run start
 
 #### GET `/api/news`
 
-Fetches and aggregates commentary articles from all configured RSS feeds.
+Fetches and aggregates commentary articles from all configured RSS feeds. Requires the `Authorization: Bearer $NEWSLETTER_JOB_TOKEN` header. Persists the results into the Firestore job queue by default (set `persist=false` to skip storage) and accepts an optional `batchSize=<n>` (default 50) to control email batch size.
 
 **Response:**
 
@@ -161,7 +163,13 @@ Fetches and aggregates commentary articles from all configured RSS feeds.
       ]
     }
   ],
-  "news": [...] // flattened array
+  "news": [...],
+  "persisted": true,
+  "sendId": "abcd1234",
+  "totalRecipients": 200,
+  "pendingRecipients": 200,
+  "batchSize": 50,
+  "jobStatus": "news-ready"
 }
 ```
 
@@ -186,23 +194,48 @@ Handles newsletter subscription requests. Validates email format and stores acti
 }
 ```
 
-#### GET `/api/newsletter`
+#### POST `/api/gemini`
 
-Triggers the newsletter sending process. Fetches commentaries, uses AI to organize them into sections, formats them, and emails to active subscribers from Firestore. Processing happens in the background.
+Formats a staged newsletter job via Gemini. Requires the `NEWSLETTER_JOB_TOKEN` bearer token. Provide `{ "sendId": "..." }` to target a specific job, or omit the body to automatically claim the oldest `news-ready` job. Saves rendered HTML, plain text, and AI metadata back to Firestore.
 
 **Response:**
 
 ```json
 {
-  "message": "Newsletter generation and sending started",
+  "message": "Newsletter plan generated",
   "sendId": "a1b2c3d4",
-  "summary": {
-    "totalArticles": 5,
-    "totalTopics": 3,
-    "totalPublishers": 2
+  "totalTopics": 7,
+  "totalArticles": 18,
+  "totalPublishers": 6
+}
+```
+
+#### POST `/api/send-newsletter`
+
+Sends the next batch (or batches) of recipients for a staged job. Requires the `NEWSLETTER_JOB_TOKEN` bearer header. Provide `{ "sendId": "..." }` and optional `maxBatches` to control processing, or omit the body to automatically claim the oldest job that is ready to send. Updates Firestore with progress and halts on failures so the cron can retry.
+
+**Response:**
+
+```json
+{
+  "message": "Batch processed",
+  "sendId": "a1b2c3d4",
+  "batchesProcessed": 1,
+  "remainingRecipients": 75,
+  "totalRecipients": 200,
+  "successfulRecipients": 125,
+  "failedRecipients": 0,
+  "nodeMailerResponse": {
+    "messageId": "<abc123@gmail.com>",
+    "accepted": ["user1@example.com"],
+    "rejected": []
   }
 }
 ```
+
+#### GET `/api/newsletter` (deprecated)
+
+Returns `410 Gone` and points to the staged workflow (`/api/news`, `/api/gemini`, `/api/send-newsletter`). Retained only to fail fast if old automations hit it.
 
 #### GET `/api/status`
 
@@ -259,6 +292,70 @@ Debugs newsletter generation with different dataset sizes.
 #### POST `/api/gemini-config-test`
 
 Tests different Gemini configuration options.
+
+### Automation with cron-job.org
+
+1. **Generate a shared token**: Set `NEWSLETTER_JOB_TOKEN` in your deployment environment and keep a copy for cron-job.org.
+2. **Create three HTTP jobs** (all `POST` except the first):
+   - `GET https://<your-domain>/api/news`
+   - `POST https://<your-domain>/api/gemini`
+   - `POST https://<your-domain>/api/send-newsletter`
+3. **Add the authorization header** to each job:
+
+   ```text
+   Authorization: Bearer YOUR_SHARED_TOKEN
+   ```
+
+4. **Schedule cadence**:
+   - News fetch every hour (or more frequently if desired).
+   - Gemini plan 2–3 minutes after the news fetch to allow Firestore writes to settle.
+   - Send step 2–3 minutes after Gemini; set it to repeat every few minutes so retries happen automatically if a batch fails.
+5. **Timeouts & retries**: Set request timeout to ≥30 seconds and enable retries on failure so transient RSS or SMTP outages are retried automatically.
+6. **Monitoring**: Cron-job.org provides response logs; pair this with the `/status` dashboard or endpoint to confirm job completion.
+
+The pipeline is idempotent: `/api/gemini` and `/api/send-newsletter` automatically claim the oldest eligible job, so repeated cron runs are safe.
+
+### Testing the pipeline with curl
+
+Run the dev server locally (`bun run dev`) and export your token before testing:
+
+```bash
+export NEWSLETTER_JOB_TOKEN=your-shared-token
+```
+
+Fetch and persist the latest news:
+
+```bash
+curl --request GET "http://localhost:3000/api/news" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
+```
+
+Generate the newsletter plan (omit the body to auto-claim the oldest job, or pass a specific `sendId`):
+
+```bash
+curl --request POST "http://localhost:3000/api/gemini" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data '{"sendId": "YOUR_SEND_ID"}'
+```
+
+Send the next batch of emails:
+
+```bash
+curl --request POST "http://localhost:3000/api/send-newsletter" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data '{"sendId": "YOUR_SEND_ID", "maxBatches": 1}'
+```
+
+Check delivery status:
+
+```bash
+curl --request GET "http://localhost:3000/api/status?id=YOUR_SEND_ID" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
+```
+
+Responses include the latest job metadata so you can confirm when the queue reaches `success`.
 
 ### Customization
 

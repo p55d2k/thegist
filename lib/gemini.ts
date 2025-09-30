@@ -24,6 +24,74 @@ const SECTION_HINT_MAP: Record<
   wildCard: "wildcard",
 };
 
+const SECTION_KEYWORDS: Partial<
+  Record<
+    keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+    RegExp[]
+  >
+> = {
+  commentaries: [
+    /opinion/i,
+    /analysis/i,
+    /commentary/i,
+    /column/i,
+    /editorial/i,
+    /perspective/i,
+  ],
+  international: [
+    /world/i,
+    /global/i,
+    /asia/i,
+    /middle east/i,
+    /europe/i,
+    /africa/i,
+    /latin america/i,
+    /international/i,
+  ],
+  politics: [
+    /politic/i,
+    /government/i,
+    /policy/i,
+    /election/i,
+    /congress/i,
+    /parliament/i,
+    /white house/i,
+    /senate/i,
+  ],
+  businessAndTech: [
+    /business/i,
+    /market/i,
+    /econom/i,
+    /startup/i,
+    /tech/i,
+    /technology/i,
+    /finance/i,
+    /industry/i,
+  ],
+  wildCard: [/culture/i, /science/i, /sport/i, /arts?/i, /feature/i, /trend/i],
+};
+
+const SECTION_TOKEN_MAP: Record<
+  string,
+  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">
+> = {
+  commentaries: "commentaries",
+  international: "international",
+  politics: "politics",
+  businessandtech: "businessAndTech",
+  businessandtechnology: "businessAndTech",
+  business: "businessAndTech",
+  wildcard: "wildCard",
+  wildcardfeature: "wildCard",
+};
+
+const normalizeSectionToken = (
+  token: string
+): keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary"> | null => {
+  const normalized = token.replace(/[^a-z]/gi, "").toLowerCase();
+  return SECTION_TOKEN_MAP[normalized] ?? null;
+};
+
 type PlanResultMetadata = {
   model: string;
   usedFallback: boolean;
@@ -67,12 +135,93 @@ const stripHtml = (value: string): string =>
 const truncate = (value: string, length = 220): string =>
   value.length > length ? `${value.slice(0, length - 1)}…` : value;
 
-const makeSummary = (article: ProcessedNewsItem): string =>
-  truncate(stripHtml(article.description));
+const condense = (value: string): string =>
+  value.replace(/\s+/g, " ").replace(/[|]/g, "/").trim();
 
-const toSectionItem = (article: ProcessedNewsItem): NewsletterSectionItem => ({
+type GeminiArticleRecord = {
+  id: string;
+  article: ProcessedNewsItem;
+};
+
+const serializeArticlesForGemini = (records: GeminiArticleRecord[]): string => {
+  const header = "id|slug|date|topic|publisher|title|summary|hints";
+
+  const rows = records.map(({ id, article }) => {
+    const hints = article.sectionHints?.join("+") ?? "";
+
+    return [
+      id,
+      article.slug,
+      article.pubDate.toISOString(),
+      article.topic ?? "",
+      article.publisher ?? "",
+      article.title,
+      truncate(stripHtml(article.description), 200),
+      hints,
+    ]
+      .map((cell) => condense(cell))
+      .join("|");
+  });
+
+  return [header, ...rows].join("\n");
+};
+
+const ensureTerminalPunctuation = (value: string): string => {
+  if (!value) {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return trimmed;
+  }
+  const last = trimmed.slice(-1);
+  return ".?!".includes(last) ? trimmed : `${trimmed}.`;
+};
+
+const buildArticleFallbackSummary = (article: ProcessedNewsItem): string => {
+  const description = stripHtml(article.description ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (description.length > 0) {
+    const sentences = description
+      .split(/(?<=[.!?])\s+/)
+      .map((sentence) => sentence.trim())
+      .filter((sentence) => sentence.length > 0);
+
+    if (sentences.length > 0) {
+      const combined = sentences.slice(0, 2).join(" ");
+      return ensureTerminalPunctuation(truncate(combined, 280));
+    }
+  }
+
+  const publisher = article.publisher ? `${article.publisher}: ` : "";
+  return ensureTerminalPunctuation(
+    truncate(`${publisher}${article.title}`, 200)
+  );
+};
+
+const formatModelSummary = (
+  summary: string | undefined,
+  article: ProcessedNewsItem
+): string => {
+  const cleaned = summary
+    ? truncate(stripHtml(summary), 280).replace(/\s+/g, " ").trim()
+    : "";
+
+  if (!cleaned) {
+    return buildArticleFallbackSummary(article);
+  }
+
+  return ensureTerminalPunctuation(cleaned);
+};
+
+const createSectionItemFromArticle = (
+  article: ProcessedNewsItem,
+  summary: string | undefined
+): NewsletterSectionItem => ({
   title: article.title,
-  summary: makeSummary(article),
+  summary: formatModelSummary(summary, article),
   link: article.link,
   publisher: article.publisher,
   topic: article.topic,
@@ -81,6 +230,186 @@ const toSectionItem = (article: ProcessedNewsItem): NewsletterSectionItem => ({
   pubDate: article.pubDate.toISOString(),
   sectionHints: article.sectionHints,
 });
+
+const parseGeminiPipePlan = (
+  responseText: string,
+  records: GeminiArticleRecord[]
+): GeminiNewsletterPlan | null => {
+  const articleById = new Map(
+    records.map(({ id, article }) => [id.toLowerCase(), article])
+  );
+  const unknownIds = new Set<string>();
+
+  const cleaned = responseText
+    .replace(/^```[a-zA-Z]*\s*/g, "")
+    .replace(/```$/g, "")
+    .trim();
+
+  const lines = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const highlightItems: NewsletterSectionItem[] = [];
+  const sectionItems: Record<
+    keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+    NewsletterSectionItem[]
+  > = {
+    commentaries: [],
+    international: [],
+    politics: [],
+    businessAndTech: [],
+    wildCard: [],
+  };
+
+  const usedSectionIds = new Set<string>();
+  const usedHighlightIds = new Set<string>();
+
+  let overviewText: string | undefined;
+  let summaryText: string | undefined;
+
+  for (const line of lines) {
+    const parts = line.split("|");
+    if (parts.length < 2) {
+      continue;
+    }
+
+    const sectionToken = parts[0]?.trim().toLowerCase();
+    if (!sectionToken) {
+      continue;
+    }
+
+    if (sectionToken === "overview" || sectionToken === "summary") {
+      const text = parts.slice(1).join("|").trim();
+      if (text.length === 0) {
+        continue;
+      }
+
+      if (sectionToken === "overview") {
+        overviewText = ensureTerminalPunctuation(text);
+      } else {
+        summaryText = ensureTerminalPunctuation(text);
+      }
+      continue;
+    }
+
+    if (parts.length < 3) {
+      continue;
+    }
+
+    const idToken = parts[1]?.trim().toLowerCase();
+    if (!idToken) {
+      continue;
+    }
+
+    const article = articleById.get(idToken);
+    if (!article) {
+      unknownIds.add(idToken);
+      continue;
+    }
+
+    const generatedSummary = parts.slice(2).join("|").trim();
+
+    if (sectionToken === "highlight") {
+      if (usedHighlightIds.has(idToken)) {
+        continue;
+      }
+      highlightItems.push(
+        createSectionItemFromArticle(article, generatedSummary)
+      );
+      usedHighlightIds.add(idToken);
+      continue;
+    }
+
+    const sectionKey = normalizeSectionToken(sectionToken);
+    if (!sectionKey) {
+      continue;
+    }
+
+    if (usedSectionIds.has(idToken)) {
+      continue;
+    }
+
+    if (sectionItems[sectionKey].length >= SECTION_LIMITS[sectionKey]) {
+      continue;
+    }
+
+    sectionItems[sectionKey].push(
+      createSectionItemFromArticle(article, generatedSummary)
+    );
+    usedSectionIds.add(idToken);
+  }
+
+  const hasCoverage =
+    sectionItems.commentaries.length >= 5 &&
+    sectionItems.commentaries.length <= SECTION_LIMITS.commentaries &&
+    sectionItems.international.length >= 2 &&
+    sectionItems.politics.length >= 2 &&
+    sectionItems.businessAndTech.length >= 2 &&
+    sectionItems.wildCard.length === 1 &&
+    highlightItems.length >= 4;
+
+  if (!hasCoverage) {
+    console.warn("Gemini plan coverage insufficient", {
+      counts: {
+        commentaries: sectionItems.commentaries.length,
+        international: sectionItems.international.length,
+        politics: sectionItems.politics.length,
+        businessAndTech: sectionItems.businessAndTech.length,
+        wildCard: sectionItems.wildCard.length,
+        highlights: highlightItems.length,
+      },
+      unknownIds: Array.from(unknownIds),
+    });
+    return null;
+  }
+
+  return {
+    essentialReads: {
+      overview:
+        overviewText ??
+        "Today's essential reads spotlight standout commentary, global developments, and market signals.",
+      highlights: highlightItems.slice(0, 4),
+    },
+    commentaries: sectionItems.commentaries,
+    international: sectionItems.international,
+    politics: sectionItems.politics,
+    businessAndTech: sectionItems.businessAndTech,
+    wildCard: sectionItems.wildCard.slice(0, SECTION_LIMITS.wildCard),
+    summary:
+      summaryText ??
+      "A concise mix of commentary, geopolitics, policy, markets, and one wildcard piece to stretch your thinking.",
+  };
+};
+
+const RESPONSE_TEMPLATE = [
+  "overview|Today's key themes in 1-2 sentences",
+  "summary|What readers will get in 1-2 sentences",
+  "highlight|a001|1-2 vivid sentences (replace a001 with real article IDs)",
+  "commentaries|a001|1-2 vivid sentences",
+  "international|a002|1-2 vivid sentences",
+  "politics|a003|1-2 vivid sentences",
+  "businessAndTech|a004|1-2 vivid sentences",
+  "wildCard|a005|1-2 vivid sentences",
+].join("\n");
+
+const buildPlanPrompt = (dataset: string): string =>
+  [
+    "You are planning a current-affairs newsletter from dataset lines (id|slug|date|topic|publisher|title|summary|hints).",
+    "Always refer to articles by their id (first column).",
+    "Generate 1-2 sentence summaries that are vivid, accurate, and grounded in the supplied facts. Refresh descriptions even when text exists, but do not invent details.",
+    "Do not rely solely on the hints column; infer sections from publisher, geography, and headline context.",
+    "Strictly output one decision per line using the pipe format shown below. Avoid markdown fences, bullet lists, or extra commentary.",
+    "Provide exactly 4 highlight lines, 5-7 commentaries, 2-3 international, 2-3 politics, 2-3 businessAndTech, and exactly 1 wildCard. Never repeat an article id across sections except that highlights may feature items already assigned to a section.",
+    "Format example (replace placeholders with real ids and text):",
+    RESPONSE_TEMPLATE,
+    "Dataset:",
+    dataset,
+  ].join("\n");
 
 const normalizeUrl = (url: string): string => {
   try {
@@ -98,105 +427,6 @@ const normalizeUrl = (url: string): string => {
   }
 };
 
-const findArticle = (
-  candidate: Partial<NewsletterSectionItem>,
-  articleByLink: Map<string, ProcessedNewsItem>,
-  articleBySlug: Map<string, ProcessedNewsItem>,
-  articleByTitle: Map<string, ProcessedNewsItem>
-): ProcessedNewsItem | undefined => {
-  if (candidate.link) {
-    const normalized = normalizeUrl(candidate.link);
-    const byLink = articleByLink.get(normalized);
-    if (byLink) {
-      return byLink;
-    }
-  }
-
-  if (candidate.slug) {
-    const bySlug = articleBySlug.get(candidate.slug);
-    if (bySlug) {
-      return bySlug;
-    }
-  }
-
-  if (candidate.title) {
-    const key = candidate.title.trim().toLowerCase();
-    const byTitle = articleByTitle.get(key);
-    if (byTitle) {
-      return byTitle;
-    }
-  }
-
-  return undefined;
-};
-
-const resolveSectionItems = (
-  rawItems: unknown,
-  section: keyof typeof SECTION_LIMITS,
-  articleByLink: Map<string, ProcessedNewsItem>,
-  articleBySlug: Map<string, ProcessedNewsItem>,
-  articleByTitle: Map<string, ProcessedNewsItem>,
-  usedLinks: Set<string>
-): NewsletterSectionItem[] => {
-  const entries = Array.isArray(rawItems)
-    ? rawItems
-    : rawItems && typeof rawItems === "object"
-    ? [rawItems]
-    : [];
-
-  if (entries.length === 0) {
-    return [];
-  }
-
-  const limit = SECTION_LIMITS[section];
-  const resolved: NewsletterSectionItem[] = [];
-
-  for (const entry of entries) {
-    if (resolved.length >= limit) {
-      break;
-    }
-
-    if (typeof entry !== "object" || entry === null) {
-      continue;
-    }
-
-    const candidate = entry as Partial<NewsletterSectionItem>;
-    const article = findArticle(
-      candidate,
-      articleByLink,
-      articleBySlug,
-      articleByTitle
-    );
-
-    if (!article) {
-      continue;
-    }
-
-    const linkKey = normalizeUrl(article.link);
-    if (usedLinks.has(linkKey)) {
-      continue;
-    }
-
-    usedLinks.add(linkKey);
-
-    const summary = (candidate.summary ?? makeSummary(article)).trim();
-
-    resolved.push({
-      title: article.title,
-      summary,
-      link: article.link,
-      publisher: article.publisher,
-      topic: article.topic,
-      slug: article.slug,
-      source: article.source,
-      pubDate: article.pubDate.toISOString(),
-      sectionHints: article.sectionHints,
-    });
-  }
-
-  return resolved;
-};
-
 const fillSectionFromPool = (
   section: keyof typeof SECTION_LIMITS,
   pool: NewsletterSectionItem[],
@@ -204,29 +434,49 @@ const fillSectionFromPool = (
 ): NewsletterSectionItem[] => {
   const limit = SECTION_LIMITS[section];
   const preferredHint = SECTION_HINT_MAP[section];
+  const keywords = SECTION_KEYWORDS[section] ?? [];
+
+  const scored = pool.map((item) => {
+    const context = `${item.topic ?? ""} ${item.title} ${
+      item.publisher ?? ""
+    }`.toLowerCase();
+    const hintScore =
+      preferredHint && item.sectionHints?.includes(preferredHint) ? 3 : 0;
+    const keywordScore = keywords.some((regex) => regex.test(context)) ? 2 : 0;
+    const wildcardBonus =
+      section === "wildCard"
+        ? item.sectionHints?.includes("wildcard")
+          ? 2
+          : 1
+        : 0;
+    const freshness = Number.isFinite(new Date(item.pubDate).getTime())
+      ? new Date(item.pubDate).getTime()
+      : 0;
+
+    const score = Math.max(1, hintScore + keywordScore + wildcardBonus);
+
+    return { item, score, freshness };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
+    return b.freshness - a.freshness;
+  });
+
   const selected: NewsletterSectionItem[] = [];
 
-  const take = (matcher: (item: NewsletterSectionItem) => boolean) => {
-    for (const item of pool) {
-      if (selected.length >= limit) {
-        break;
-      }
-      const linkKey = normalizeUrl(item.link);
-      if (usedLinks.has(linkKey)) {
-        continue;
-      }
-      if (!matcher(item)) {
-        continue;
-      }
-      usedLinks.add(linkKey);
-      selected.push(item);
+  for (const candidate of scored) {
+    if (selected.length >= limit) {
+      break;
     }
-  };
-
-  take((item) => item.sectionHints?.includes(preferredHint) ?? false);
-
-  if (selected.length < limit) {
-    take(() => true);
+    const linkKey = normalizeUrl(candidate.item.link);
+    if (usedLinks.has(linkKey)) {
+      continue;
+    }
+    usedLinks.add(linkKey);
+    selected.push(candidate.item);
   }
 
   return selected;
@@ -239,7 +489,9 @@ const buildFallbackPlan = (
   const sortedArticles = [...articles].sort(
     (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
   );
-  const pool = sortedArticles.map(toSectionItem);
+  const pool = sortedArticles.map((article) =>
+    createSectionItemFromArticle(article, undefined)
+  );
   const usedLinks = new Set<string>();
 
   const commentaries = fillSectionFromPool("commentaries", pool, usedLinks);
@@ -328,163 +580,6 @@ export const generateNewsletterPlanFallback = (
   fallbackReason = "Fallback planner invoked"
 ): PlanResult => buildFallbackPlan(articles, fallbackReason);
 
-const sanitizePlan = (
-  candidate: unknown,
-  articles: ProcessedNewsItem[]
-): GeminiNewsletterPlan | null => {
-  if (!candidate || typeof candidate !== "object") {
-    return null;
-  }
-
-  const planCandidate = candidate as Partial<GeminiNewsletterPlan>;
-  if (!planCandidate.essentialReads || !planCandidate.commentaries) {
-    return null;
-  }
-
-  const articleByLink = new Map<string, ProcessedNewsItem>();
-  const articleBySlug = new Map<string, ProcessedNewsItem>();
-  const articleByTitle = new Map<string, ProcessedNewsItem>();
-
-  for (const article of articles) {
-    articleByLink.set(normalizeUrl(article.link), article);
-    articleBySlug.set(article.slug, article);
-    articleByTitle.set(article.title.trim().toLowerCase(), article);
-  }
-
-  const usedLinks = new Set<string>();
-
-  const commentaries = resolveSectionItems(
-    planCandidate.commentaries,
-    "commentaries",
-    articleByLink,
-    articleBySlug,
-    articleByTitle,
-    usedLinks
-  );
-  const international = resolveSectionItems(
-    planCandidate.international,
-    "international",
-    articleByLink,
-    articleBySlug,
-    articleByTitle,
-    usedLinks
-  );
-  const politics = resolveSectionItems(
-    planCandidate.politics,
-    "politics",
-    articleByLink,
-    articleBySlug,
-    articleByTitle,
-    usedLinks
-  );
-  const businessAndTech = resolveSectionItems(
-    planCandidate.businessAndTech,
-    "businessAndTech",
-    articleByLink,
-    articleBySlug,
-    articleByTitle,
-    usedLinks
-  );
-  const wildCard = resolveSectionItems(
-    planCandidate.wildCard,
-    "wildCard",
-    articleByLink,
-    articleBySlug,
-    articleByTitle,
-    usedLinks
-  );
-
-  const highlightEntries = Array.isArray(
-    planCandidate.essentialReads?.highlights
-  )
-    ? planCandidate.essentialReads?.highlights
-    : [];
-
-  const highlights = (highlightEntries ?? [])
-    .map((item) => {
-      if (typeof item !== "object" || !item) {
-        return undefined;
-      }
-      const article = findArticle(
-        item as Partial<NewsletterSectionItem>,
-        articleByLink,
-        articleBySlug,
-        articleByTitle
-      );
-      if (!article) {
-        return undefined;
-      }
-      const candidateSummary = (() => {
-        const rawSummary = (item as NewsletterSectionItem).summary;
-        if (typeof rawSummary === "string" && rawSummary.trim().length > 0) {
-          return rawSummary.trim();
-        }
-        const rawDescription = (item as { description?: string }).description;
-        if (
-          typeof rawDescription === "string" &&
-          rawDescription.trim().length > 0
-        ) {
-          return truncate(stripHtml(rawDescription));
-        }
-        return makeSummary(article);
-      })();
-      return {
-        title: article.title,
-        summary: candidateSummary,
-        link: article.link,
-        publisher: article.publisher,
-        topic: article.topic,
-        slug: article.slug,
-        source: article.source,
-        pubDate: article.pubDate.toISOString(),
-        sectionHints: article.sectionHints,
-      } satisfies NewsletterSectionItem;
-    })
-    .filter((value): value is NewsletterSectionItem => !!value);
-
-  const overviewText = planCandidate.essentialReads?.overview?.trim();
-  const summaryText = planCandidate.summary?.trim();
-
-  const hasCoverage =
-    commentaries.length >= 3 &&
-    international.length >= 1 &&
-    politics.length >= 1 &&
-    businessAndTech.length >= 1 &&
-    wildCard.length >= 1;
-
-  if (!hasCoverage) {
-    return null;
-  }
-
-  const plan: GeminiNewsletterPlan = {
-    essentialReads: {
-      overview:
-        overviewText && overviewText.length > 0
-          ? overviewText
-          : "Today's essential reads spotlight standout commentary, global developments, and market signals.",
-      highlights:
-        highlights.length > 0
-          ? highlights.slice(0, 4)
-          : [
-              ...commentaries.slice(0, 2),
-              ...international.slice(0, 1),
-              ...businessAndTech.slice(0, 1),
-            ].slice(0, 4),
-    },
-    commentaries,
-    international,
-    politics,
-    businessAndTech,
-    wildCard: wildCard.slice(0, SECTION_LIMITS.wildCard),
-    summary:
-      summaryText && summaryText.length > 0
-        ? summaryText
-        : "A concise mix of commentary, geopolitics, policy, markets, and one wildcard piece to stretch your thinking.",
-  };
-
-  return plan;
-};
-
 export const generateNewsletterPlan = async (
   articles: ProcessedNewsItem[]
 ): Promise<PlanResult> => {
@@ -504,9 +599,10 @@ export const generateNewsletterPlan = async (
   const model = genAI.getGenerativeModel({
     model: DEFAULT_MODEL,
     generationConfig: {
-      temperature: 0.6,
-      topP: 0.8,
-      maxOutputTokens: 131072,
+      temperature: 0.45,
+      topP: 0.7,
+      maxOutputTokens: 4096,
+      responseMimeType: "text/plain",
     },
   });
 
@@ -515,19 +611,15 @@ export const generateNewsletterPlan = async (
   );
 
   const limitedArticles = sortedArticles.slice(0, MAX_INPUT_ARTICLES);
-  const dataset = limitedArticles.map((article) => ({
-    title: article.title,
-    description: truncate(stripHtml(article.description), 300),
-    link: article.link,
-    publisher: article.publisher,
-    topic: article.topic,
-    slug: article.slug,
-    source: article.source,
-    pubDate: article.pubDate.toISOString(),
-    sectionHints: article.sectionHints,
-  }));
+  const articleRecords: GeminiArticleRecord[] = limitedArticles.map(
+    (article, index) => ({
+      id: `a${String(index + 1).padStart(3, "0")}`,
+      article,
+    })
+  );
 
-  const instructions = `You are an editorial assistant for a daily newsletter. Organise the provided articles into the following sections:\n\n- essentialReads: overview + 3-4 highlight items\n- commentaries: top 5-7 opinion/analysis pieces\n- international: top 2-3 global headlines\n- politics: top 2-3 policy/governance stories\n- businessAndTech: top 2-3 market, business, or technology updates\n- wildCard: exactly 1 unexpected or contrarian piece\n- summary: closing paragraph summarising the mix\n\nGuidelines:\n- Use only the articles provided in the dataset.\n- Prefer newer pieces (higher pubDate) when in doubt.\n- Do not repeat the same article across multiple sections except essential highlights.\n- Provide concise summaries (max 2 sentences).\n- Preserve publisher/topic context to help the reader understand the angle.\n- Return valid JSON only.\n- Honour provided sectionHints when selecting items where possible.`;
+  const serializedDataset = serializeArticlesForGemini(articleRecords);
+  const prompt = buildPlanPrompt(serializedDataset);
 
   try {
     const result = await model.generateContent({
@@ -536,11 +628,7 @@ export const generateNewsletterPlan = async (
           role: "user",
           parts: [
             {
-              text: `${instructions}\n\nDataset:\n${JSON.stringify(
-                dataset,
-                null,
-                2
-              )}`,
+              text: prompt,
             },
           ],
         },
@@ -563,76 +651,9 @@ export const generateNewsletterPlan = async (
       throw new Error("Empty response from Gemini");
     }
 
-    // Sometimes Gemini responses include markdown code blocks or extra text
-    // Try to extract just the JSON part
-    let jsonText = rawText.trim();
+    const parsedPlan = parseGeminiPipePlan(rawText, articleRecords);
 
-    // Remove markdown code block markers if present
-    if (jsonText.startsWith("```json")) {
-      jsonText = jsonText.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-    } else if (jsonText.startsWith("```")) {
-      jsonText = jsonText.replace(/^```\s*/, "").replace(/\s*```$/, "");
-    }
-
-    // Find JSON object boundaries if there's extra text
-    const jsonStart = jsonText.indexOf("{");
-    const jsonEnd = jsonText.lastIndexOf("}");
-
-    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-      jsonText = jsonText.substring(jsonStart, jsonEnd + 1);
-    }
-
-    console.log("Extracted JSON text:", jsonText);
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(jsonText);
-      console.log("Successfully parsed JSON on first attempt");
-    } catch (jsonError) {
-      console.log("First JSON parse failed, attempting to fix common issues");
-      console.log(
-        "JSON error:",
-        jsonError instanceof Error ? jsonError.message : jsonError
-      );
-      console.log(
-        "Problematic JSON text (first 500 chars):",
-        jsonText.substring(0, 500)
-      );
-
-      // Try to fix common JSON issues and parse again
-      let fixedJson = jsonText
-        .replace(/,\s*}/g, "}") // Remove trailing commas
-        .replace(/,\s*]/g, "]") // Remove trailing commas in arrays
-        .replace(/'/g, '"') // Replace single quotes with double quotes
-        .replace(/([{,]\s*)(\w+):/g, '$1"$2":'); // Quote unquoted keys
-
-      try {
-        parsed = JSON.parse(fixedJson);
-        console.log("Successfully parsed JSON after fixing");
-      } catch (secondError) {
-        console.error("JSON parsing failed for Gemini response:", {
-          rawText:
-            rawText.substring(0, 500) + (rawText.length > 500 ? "..." : ""),
-          extractedJson:
-            jsonText.substring(0, 500) + (jsonText.length > 500 ? "..." : ""),
-          fixedJson:
-            fixedJson.substring(0, 500) + (fixedJson.length > 500 ? "..." : ""),
-          fullLength: rawText.length,
-          originalError: jsonError,
-          secondError: secondError,
-        });
-        throw new Error(
-          `Invalid JSON response from Gemini: ${
-            jsonError instanceof Error
-              ? jsonError.message
-              : "Unknown JSON error"
-          }`
-        );
-      }
-    }
-    const sanitisedPlan = sanitizePlan(parsed, limitedArticles);
-
-    if (!sanitisedPlan) {
+    if (!parsedPlan) {
       return buildFallbackPlan(
         articles,
         "Gemini response missing required sections or failed validation"
@@ -640,7 +661,7 @@ export const generateNewsletterPlan = async (
     }
 
     return {
-      plan: sanitisedPlan,
+      plan: parsedPlan,
       metadata: {
         model: DEFAULT_MODEL,
         usedFallback: false,

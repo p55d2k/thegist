@@ -4,9 +4,43 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseStringPromise } from "xml2js";
 
 import { links } from "@/constants/links";
+import {
+  getActiveSubscribers,
+  createNewsletterJobFromNews,
+  type SerializedTopicNewsGroup,
+} from "@/lib/firestore";
+
+const AUTH_HEADER = "authorization";
+
+const ensureAuthorized = (request: NextRequest): NextResponse | null => {
+  const token = process.env.NEWSLETTER_JOB_TOKEN;
+  if (!token) {
+    return null;
+  }
+
+  const header = request.headers.get(AUTH_HEADER);
+  const expected = `Bearer ${token}`;
+  if (header !== expected) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return null;
+};
 
 export async function GET(req: NextRequest) {
+  const authResponse = ensureAuthorized(req);
+  if (authResponse) {
+    return authResponse;
+  }
+
   revalidatePath("/api/news");
+
+  const searchParams = req.nextUrl.searchParams;
+  const persist = searchParams.get("persist") !== "false";
+  const batchSizeParam = searchParams.get("batchSize");
+  const batchSize = Number.isFinite(Number(batchSizeParam))
+    ? Math.max(1, Number.parseInt(batchSizeParam ?? "50", 10))
+    : 50;
 
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -139,12 +173,62 @@ export async function GET(req: NextRequest) {
 
   const allNews = topics.flatMap((group) => group.items);
 
+  let persistenceInfo: Record<string, unknown> | undefined;
+
+  if (persist) {
+    const recipients = await getActiveSubscribers();
+
+    const serializedTopics: SerializedTopicNewsGroup[] = topics.map(
+      (group) => ({
+        topic: group.topic,
+        slug: group.slug,
+        publisher: group.publisher,
+        sectionHints: group.sectionHints ?? [],
+        items: group.items.map((item) => ({
+          title: item.title,
+          description: item.description,
+          link: item.link,
+          pubDate: item.pubDate.toISOString(),
+          source: item.source,
+          publisher: item.publisher,
+          topic: item.topic,
+          slug: item.slug,
+          sectionHints: item.sectionHints ?? [],
+          ...(item.imageUrl ? { imageUrl: item.imageUrl } : {}),
+        })),
+      })
+    );
+
+    const articlesSummary = {
+      totalArticles: allNews.length,
+      totalTopics: topics.length,
+      totalPublishers: new Set(topics.map((group) => group.publisher)).size,
+    };
+
+    const job = await createNewsletterJobFromNews({
+      topics: serializedTopics,
+      articlesSummary,
+      recipients,
+      batchSize,
+    });
+
+    persistenceInfo = {
+      persisted: true,
+      sendId: job.id,
+      totalRecipients: recipients.length,
+      pendingRecipients: job.pendingRecipientsCount ?? recipients.length,
+      batchSize,
+      jobStatus: job.status,
+    };
+  }
+
   const response = NextResponse.json(
     {
       message: `Retrieved ${allNews.length} commentary items across ${topics.length} topic feeds`,
       count: allNews.length,
       topics,
       news: allNews,
+      ...(persistenceInfo ?? {}),
     },
     { status: 200 }
   );

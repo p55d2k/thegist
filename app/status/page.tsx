@@ -7,7 +7,13 @@ interface EmailSendStatus {
   id: string;
   startedAt: string;
   completedAt?: string;
-  status: "pending" | "success" | "failed";
+  status:
+    | "pending"
+    | "news-ready"
+    | "ready-to-send"
+    | "sending"
+    | "success"
+    | "failed";
   totalRecipients: number;
   successfulRecipients: number;
   failedRecipients: number;
@@ -57,7 +63,7 @@ export default function StatusPage() {
           setError("");
 
           const pending = data.recentSends.some(
-            (send) => send.status === "pending"
+            (send) => send.status !== "success" && send.status !== "failed"
           );
           setHasPendingSends(pending);
         } else {
@@ -113,6 +119,12 @@ export default function StatusPage() {
         return "text-red-600 bg-red-50";
       case "pending":
         return "text-yellow-600 bg-yellow-50";
+      case "news-ready":
+        return "text-blue-600 bg-blue-50";
+      case "ready-to-send":
+        return "text-indigo-600 bg-indigo-50";
+      case "sending":
+        return "text-purple-600 bg-purple-50";
       default:
         return "text-gray-600 bg-gray-50";
     }
@@ -126,10 +138,22 @@ export default function StatusPage() {
         return "❌";
       case "pending":
         return "⏳";
+      case "news-ready":
+        return "📰";
+      case "ready-to-send":
+        return "🚀";
+      case "sending":
+        return "📤";
       default:
         return "❓";
     }
   };
+
+  const formatStatusLabel = (status: EmailSendStatus["status"]): string =>
+    status
+      .split("-")
+      .map((segment) => segment.toUpperCase())
+      .join(" ");
 
   useEffect(() => {
     void fetchRecentSends({ showLoading: true });
@@ -233,7 +257,7 @@ export default function StatusPage() {
                   )}`}
                 >
                   {getStatusIcon(selectedStatus.status)}{" "}
-                  {selectedStatus.status.toUpperCase()}
+                  {formatStatusLabel(selectedStatus.status)}
                 </span>
               </p>
               <p className="text-sm text-blue-700">
@@ -333,7 +357,8 @@ export default function StatusPage() {
                           send.status
                         )}`}
                       >
-                        {getStatusIcon(send.status)} {send.status.toUpperCase()}
+                        {getStatusIcon(send.status)}{" "}
+                        {formatStatusLabel(send.status)}
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 mt-1">
