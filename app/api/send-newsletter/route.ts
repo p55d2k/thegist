@@ -164,12 +164,12 @@ export async function POST(request: NextRequest) {
 
     try {
       const info = await transporter.sendMail({
-        from: `"ZK Daily Intelligence Brief" <${process.env.GOOGLE_USER_EMAIL}>`,
+        from: `"The Gist" <${process.env.GOOGLE_USER_EMAIL}>`,
         to: process.env.GOOGLE_USER_EMAIL,
         bcc: batchRecipients.join(", "),
         subject:
           job.emailSubject ??
-          `ZK Daily Intelligence Brief - ${new Date().toDateString()}`,
+          `The Gist - ${new Date().toDateString()}`,
         text: job.formattedRawText,
         html: job.formattedHtml,
       });

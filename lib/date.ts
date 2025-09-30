@@ -1,6 +1,6 @@
 export const getDateString = (): string => {
   const today = new Date();
-  today.setHours(today.getHours() + 8); // Adjust for GMT+8
+  today.setHours(today.getHours());
   const yyyy = today.getFullYear();
   let mm: number | string = today.getMonth() + 1;
   let dd: number | string = today.getDate();
@@ -14,7 +14,7 @@ export const getDateString = (): string => {
 
 export const getGreeting = (): string => {
   const today = new Date();
-  today.setHours(today.getHours() + 8); // Adjust for GMT+8
+  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 11) {
@@ -28,7 +28,7 @@ export const getGreeting = (): string => {
 
 export const getTime = (): string => {
   const today = new Date();
-  today.setHours(today.getHours() + 8); // Adjust for GMT+8
+  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 12) {
@@ -40,7 +40,7 @@ export const getTime = (): string => {
 
 export const getTimeBasedGreeting = (): string => {
   const today = new Date();
-  today.setHours(today.getHours() + 8); // Adjust for GMT+8
+  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 12) {

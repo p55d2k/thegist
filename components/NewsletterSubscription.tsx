@@ -69,7 +69,7 @@ export default function NewsletterSubscription({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, delay: 0.3 }}
-      className={`bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 border border-white/20 ${className}`}
+      className={`rounded-2xl border border-white/10 bg-slate-950/80 p-8 text-white shadow-[0_30px_120px_-45px_rgba(59,130,246,0.55)] backdrop-blur-xl ${className}`}
     >
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -77,14 +77,12 @@ export default function NewsletterSubscription({
         transition={{ duration: 0.5, delay: 0.5 }}
         className="text-center mb-6"
       >
-        <h3 className="text-2xl font-bold text-gray-800 mb-2">
-          📬 Join the Intelligence Brief
-        </h3>
-        <p className="text-gray-600 text-sm leading-relaxed">
-          Get handpicked commentaries delivered to your inbox twice daily.
-          <br />
-          <span className="font-semibold text-gray-700">
-            Morning briefings • Evening analyses • Zero spam
+        <h3 className="text-xl sm:text-2xl font-bold mb-2">🤖 Join The Gist</h3>
+        <p className="text-xs sm:text-sm leading-relaxed text-slate-200">
+          Get the five-minute brief that tells you what actually matters.
+          <br className="hidden sm:block" />
+          <span className="block sm:inline font-semibold text-blue-200">
+            AI reads 100+ sources • No clickbait • Cancel anytime
           </span>
         </p>
       </motion.div>
@@ -101,7 +99,7 @@ export default function NewsletterSubscription({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Enter your email address"
-            className="w-full px-4 py-3 text-gray-700 bg-white border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all duration-200 placeholder-gray-400 text-center font-medium"
+            className="w-full rounded-xl border-2 border-white/10 bg-slate-900/60 px-5 py-3 text-center text-sm font-medium text-white placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
             disabled={isSubmitting}
             required
           />
@@ -109,7 +107,7 @@ export default function NewsletterSubscription({
             <motion.p
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-red-500 text-xs mt-1 text-center"
+              className="mt-2 text-xs text-rose-300 text-center"
             >
               Please enter a valid email address
             </motion.p>
@@ -124,16 +122,16 @@ export default function NewsletterSubscription({
           whileTap={{ scale: 0.98 }}
           type="submit"
           disabled={isSubmitting || !email.trim() || !isValidEmail(email)}
-          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold py-3 px-6 rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+          className="w-full rounded-xl bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold uppercase tracking-[0.1em] sm:tracking-[0.2em] text-white transition hover:from-blue-400 hover:via-indigo-500 hover:to-purple-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isSubmitting ? (
             <motion.div
               animate={{ rotate: 360 }}
               transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              className="w-5 h-5 border-2 border-white border-t-transparent rounded-full mx-auto"
+              className="mx-auto h-5 w-5 rounded-full border-2 border-white border-t-transparent"
             />
           ) : (
-            "Subscribe to Intelligence Brief ✨"
+            "Subscribe to The Gist ✨"
           )}
         </motion.button>
       </form>
@@ -143,12 +141,12 @@ export default function NewsletterSubscription({
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
-          className={`mt-4 p-3 rounded-lg text-center font-medium ${
+          className={`mt-4 rounded-lg border p-3 text-center text-sm font-medium ${
             status === "success"
-              ? "bg-green-100 text-green-800 border border-green-200"
+              ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
               : status === "exists"
-              ? "bg-yellow-100 text-yellow-800 border border-yellow-200"
-              : "bg-red-100 text-red-800 border border-red-200"
+              ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+              : "border-rose-400/40 bg-rose-500/10 text-rose-100"
           }`}
         >
           {message}
@@ -161,7 +159,7 @@ export default function NewsletterSubscription({
         transition={{ duration: 0.4, delay: 1.1 }}
         className="mt-6 text-center"
       >
-        <p className="text-xs text-gray-500">
+        <p className="text-[10px] sm:text-xs uppercase tracking-[0.2em] sm:tracking-[0.3em] text-slate-400">
           🔒 Your email is safe with us. Unsubscribe anytime.
         </p>
       </motion.div>

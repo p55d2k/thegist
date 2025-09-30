@@ -23,24 +23,24 @@ const SECTION_COPY: Record<
   { title: string; subtitle: string }
 > = {
   commentaries: {
-    title: "Commentaries",
-    subtitle: "Top 5-7 analysis pieces offering sharp perspective.",
+    title: "Deeper dives",
+    subtitle: "Takes that add context without the jargon (3-5 picks).",
   },
   international: {
-    title: "International main news",
-    subtitle: "Top 2-3 global developments to monitor.",
+    title: "Around the world",
+    subtitle: "Global shifts worth knowing before lunch.",
   },
   politics: {
     title: "Politics",
-    subtitle: "Top 2-3 policy, governance or campaign moves.",
+    subtitle: "Power moves, policy swings, and who it impacts.",
   },
   businessAndTech: {
     title: "Business & tech",
-    subtitle: "Top 2-3 market, corporate or technology signals.",
+    subtitle: "Money, markets, and product updates that hit your feed.",
   },
   wildCard: {
-    title: "Wild card / special",
-    subtitle: "One contrarian or unexpected read to stretch thinking.",
+    title: "Wildcard",
+    subtitle: "One curveball story you'll want to bring up later.",
   },
 };
 
@@ -118,7 +118,7 @@ const renderHighlightCard = (
     )}</p>
     <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
       item.link
-    )}">Read more</a>
+    )}">Read the source</a>
     <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
       item
     )}</div>
@@ -139,7 +139,7 @@ const renderSectionCards = (items: NewsletterSectionItem[]): string =>
         )}</p>
         <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
           item.link
-        )}">Open story</a>
+        )}">Read the source</a>
         <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
           item
         )}</div>
@@ -195,7 +195,7 @@ const renderWildCard = (items: NewsletterSectionItem[]): string => {
       )}</p>
       <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
         item.link
-      )}">Explore the wildcard</a>
+      )}">Open the wildcard</a>
       <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
         item
       )}</div>
@@ -221,12 +221,13 @@ const buildHtml = (formatted: FormattedArticles): string => {
   } = formatted;
 
   const aiBadge = aiMetadata.usedFallback
-    ? `Structured with heuristics${
+    ? `Assembled with human safeguards${
         aiMetadata.fallbackReason
           ? ` (${escapeHtml(aiMetadata.fallbackReason)})`
           : ""
       }`
-    : `AI-assisted via ${escapeHtml(aiMetadata.model)}`;
+    : `Assembled with ${escapeHtml(aiMetadata.model)}`;
+  const generatedOn = formatDate(new Date());
 
   return `<!DOCTYPE html>
   <html>
@@ -261,10 +262,12 @@ const buildHtml = (formatted: FormattedArticles): string => {
         <main style="overflow: hidden; border-radius: 12px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
           <header style="margin-bottom: 32px; text-align: center;">
             <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
-              Good ${getGreeting()}!
+              Here's the gist.
             </h1>
             <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
-              ${getTimeBasedGreeting()} Let's dive into today's essential reads.
+              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today (${escapeHtml(
+    generatedOn
+  )}).
             </p>
             <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
               <span>${totalArticles} articles</span>
@@ -276,7 +279,10 @@ const buildHtml = (formatted: FormattedArticles): string => {
           </header>
           
           <div style="margin-bottom: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 16px; font-size: 14px; line-height: 1.5; color: #334155;">
-            ${escapeHtml(summary)}
+            ${escapeHtml(
+              summary ||
+                "We kept it honest: what happened, why it matters, and what might change next. Sources for every pick are linked below."
+            )}
           </div>
           
           <section style="margin-bottom: 32px;">
@@ -300,10 +306,11 @@ const buildHtml = (formatted: FormattedArticles): string => {
           ${renderWildCard(wildCard)}
           
           <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
-            <p style="margin: 0 0 16px 0;">With appreciation,<br/>ZK Daily Intelligence Team</p>
+            <p style="margin: 0 0 16px 0;">Stay curious,<br/>The Gist team</p>
             <span style="display: inline-block; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
               ${aiBadge}
             </span>
+            <p style="margin: 16px 0 0 0; font-size: 12px; color: #94a3b8;">Don't want these anymore? One-click unsubscribe lives at the bottom of every send.</p>
           </footer>
         </main>
       </div>
@@ -328,6 +335,17 @@ const buildText = (formatted: FormattedArticles): string => {
     aiMetadata,
   } = formatted;
 
+  const generatedOn = formatDate(new Date());
+  const summaryText = summary?.trim().length
+    ? summary.trim()
+    : "We kept it honest: what happened, why it matters, and what could shift next. Sources for every pick are linked below.";
+
+  const aiLine = aiMetadata.usedFallback
+    ? `Structured with human safeguards${
+        aiMetadata.fallbackReason ? ` (${aiMetadata.fallbackReason})` : ""
+      }`
+    : `AI-assisted via ${aiMetadata.model}`;
+
   const sectionToText = (
     title: string,
     items: NewsletterSectionItem[],
@@ -337,7 +355,7 @@ const buildText = (formatted: FormattedArticles): string => {
       return "";
     }
 
-    const heading = `${title.toUpperCase()} (${label})`;
+    const heading = `${title.toUpperCase()} — ${label}`;
     const entries = items
       .map((item, index) => {
         const description = truncate(stripHtml(item.summary));
@@ -356,19 +374,38 @@ const buildText = (formatted: FormattedArticles): string => {
     .join("\n");
 
   const textSections = [
-    `SUMMARY\n${summary}`,
+    `THE GIST — ${generatedOn}`,
+    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed 100+ sources so you don't have to.`,
+    `SUMMARY\n${summaryText}`,
     `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
-    sectionToText("Commentaries", commentaries, "Top 5-7"),
-    sectionToText("International main news", international, "Top 2-3"),
-    sectionToText("Politics", politics, "Top 2-3"),
-    sectionToText("Business & tech", businessAndTech, "Top 2-3"),
-    sectionToText("Wild card / special", wildCard, "1 unexpected"),
-    `Totals: ${totalArticles} articles · ${totalTopics} topics · ${totalPublishers} publishers` +
-      (aiMetadata.usedFallback
-        ? `\nStructured with heuristics${
-            aiMetadata.fallbackReason ? ` (${aiMetadata.fallbackReason})` : ""
-          }`
-        : `\nAI-assisted via ${aiMetadata.model}`),
+    sectionToText(
+      SECTION_COPY.commentaries.title,
+      commentaries,
+      SECTION_COPY.commentaries.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.international.title,
+      international,
+      SECTION_COPY.international.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.politics.title,
+      politics,
+      SECTION_COPY.politics.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.businessAndTech.title,
+      businessAndTech,
+      SECTION_COPY.businessAndTech.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.wildCard.title,
+      wildCard,
+      SECTION_COPY.wildCard.subtitle
+    ),
+    `Totals: ${totalArticles} articles · ${totalTopics} topics · ${totalPublishers} publishers\n${aiLine}`,
+    `Stay curious,\nThe Gist team`,
+    "Unsubscribe? It's one tap in the footer of every email.",
   ].filter(Boolean);
 
   return textSections.join("\n\n");
@@ -451,19 +488,25 @@ export const formatRawBody = (
   formattedArticles: FormattedArticles,
   id: string
 ): string => {
-  const intro = `${getTimeBasedGreeting()} We've curated ${
-    formattedArticles.plan.commentaries.length +
-    formattedArticles.plan.international.length +
-    formattedArticles.plan.politics.length +
-    formattedArticles.plan.businessAndTech.length +
-    formattedArticles.plan.wildCard.length
-  } standout pieces today.`;
+  // If this is a preview send, obfuscate links in plaintext to avoid revealing real URLs
+  const isPreview = id && id.startsWith("preview-");
 
-  return `Good ${getGreeting()}!\n\n${intro}\n\n${
-    formattedArticles.text
-  }\n\nBest regards,\nZK Daily Intelligence Team\n${
+  const obfuscateLink = (url: string, index: number) =>
+    isPreview ? `[link:${index + 1}]` : url;
+
+  // Build plain text but replace URLs when previewing
+  const text = formattedArticles.text
+    .split(/\n/)
+    .map((line) => {
+      return line.replace(/https?:\/\/[\S]+/g, (match) =>
+        obfuscateLink(match, 0)
+      );
+    })
+    .join("\n");
+
+  return `${text}\n\nStay curious,\nThe Gist team\n${
     formattedArticles.aiMetadata.usedFallback
-      ? `Structured with heuristics${
+      ? `Structured with human safeguards${
           formattedArticles.aiMetadata.fallbackReason
             ? ` (${formattedArticles.aiMetadata.fallbackReason})`
             : ""

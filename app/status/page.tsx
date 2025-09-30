@@ -179,7 +179,7 @@ export default function StatusPage() {
           animate={{ opacity: 1, y: 0 }}
           className="text-3xl font-semibold tracking-tight text-slate-900"
         >
-          Newsletter Email Status
+          The Gist delivery status
         </motion.h1>
         <motion.p
           initial={{ opacity: 0, y: -20 }}
@@ -187,8 +187,9 @@ export default function StatusPage() {
           transition={{ delay: 0.1 }}
           className="max-w-3xl text-sm leading-6 text-slate-600"
         >
-          Track the delivery status of newsletter emails. This page shows recent
-          email sends and allows you to check specific send IDs.
+          Keep tabs on what&apos;s been sent (or is about to be sent). Review
+          recent newsletters and drill into specific send IDs when you need the
+          details.
         </motion.p>
 
         {/* Search by ID */}

@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     formattedRawText: formatRawBody(formatted, sendId),
     aiMetadata: formatted.aiMetadata,
     summaryText: formatted.plan.summary,
-    emailSubject: `ZK Daily Intelligence Brief - ${getDateString()}`,
+    emailSubject: `The Gist - ${getDateString()}`,
   });
 
   return NextResponse.json(

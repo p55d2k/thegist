@@ -1,4 +1,4 @@
-# ZK Daily Intelligence Brief
+# The Gist
 
 A Next.js-based newsletter application that aggregates and emails curated commentaries from a curated list of publishers. The app fetches opinion pieces, groups them by topics, and sends personalized email digests to subscribers.
 
@@ -34,8 +34,8 @@ A Next.js-based newsletter application that aggregates and emails curated commen
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/p55d2k/zk-newsletter.git
-   cd zk-newsletter
+   git clone https://github.com/p55d2k/thegist.git
+   cd thegist
    ```
 
 2. Install dependencies:
