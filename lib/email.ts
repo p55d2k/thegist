@@ -1,4 +1,3 @@
-import { generateNewsletterPlan } from "@/lib/gemini";
 import { getGreeting, getTime, getTimeBasedGreeting } from "@/lib/date";
 
 export interface FormattedArticles {
@@ -389,20 +388,115 @@ export const formatArticles = async (
 
   uniqueArticles.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
 
-  const { plan, metadata } = await generateNewsletterPlan(uniqueArticles);
+  // Create fake newsletter plan instead of calling Gemini
+  const fakePlan: GeminiNewsletterPlan = {
+    essentialReads: {
+      overview:
+        "Today's essential reads cover fresh commentary on global politics, business developments, and unexpected insights from diverse perspectives.",
+      highlights: uniqueArticles.slice(0, 4).map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 200),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    },
+    commentaries: uniqueArticles
+      .filter((article) => article.sectionHints.includes("commentaries"))
+      .slice(0, 7)
+      .map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 220),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    international: uniqueArticles
+      .filter((article) => article.sectionHints.includes("international"))
+      .slice(0, 3)
+      .map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 220),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    politics: uniqueArticles
+      .filter((article) => article.sectionHints.includes("politics"))
+      .slice(0, 3)
+      .map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 220),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    businessAndTech: uniqueArticles
+      .filter((article) => article.sectionHints.includes("business-tech"))
+      .slice(0, 3)
+      .map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 220),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    wildCard: uniqueArticles
+      .filter((article) => article.sectionHints.includes("wildcard"))
+      .slice(0, 1)
+      .map((article) => ({
+        title: article.title,
+        summary: truncate(stripHtml(article.description), 260),
+        link: article.link,
+        publisher: article.publisher,
+        topic: article.topic,
+        slug: article.slug,
+        source: article.source,
+        pubDate: article.pubDate.toISOString(),
+        sectionHints: article.sectionHints,
+      })),
+    summary:
+      "A curated mix of commentary, global developments, policy insights, market signals, and one wildcard piece to challenge conventional thinking.",
+  };
+
+  const fakeMetadata = {
+    model: "fake-data-generator",
+    usedFallback: true,
+    fallbackReason: "Using fake data for development",
+  };
 
   const totalTopics = topics.length;
   const totalArticles = uniqueArticles.length;
   const totalPublishers = new Set(topics.map((group) => group.publisher)).size;
 
   const formatted: FormattedArticles = {
-    plan,
+    plan: fakePlan,
     html: "",
     text: "",
     totalTopics,
     totalArticles,
     totalPublishers,
-    aiMetadata: metadata,
+    aiMetadata: fakeMetadata,
   };
 
   formatted.html = buildHtml(formatted);
