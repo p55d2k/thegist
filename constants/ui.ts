@@ -71,10 +71,10 @@ export const HOME_CONTENT = {
     { initials: "AR", gradient: "from-blue-500 to-cyan-500" },
     { initials: "JM", gradient: "from-purple-500 to-indigo-500" },
     { initials: "SK", gradient: "from-emerald-500 to-teal-500" },
-    { initials: "+4k", gradient: "from-slate-500 to-slate-600" },
+    { initials: "+", gradient: "from-slate-500 to-slate-600" },
   ],
 
-  subscriberCount: "4,200+ people skipping the doom-scroll",
+  subscriberCount: "For people who want the gist, not the scroll",
 
   sections: {
     howItWorks: {
@@ -93,7 +93,7 @@ export const HOME_CONTENT = {
         "Staying informed shouldn't feel like homework. Here's how we keep it real about what the AI can (and can't) do.",
     },
     cta: {
-      badge: "Join 4,200+ who get the gist",
+      badge: "Be among the first to get The Gist",
       title: "Get tomorrow's brief—free, fast, no BS.",
       description:
         "Delivered at 7:30am every weekday. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",

@@ -74,7 +74,7 @@ const Home = () => {
               <Link
                 href="/email-preview"
                 target="_blank"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 font-medium text-white transition hover:border-purple-400/60 hover:bg-purple-500/20"
+                className="hidden md:inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 font-medium text-white transition hover:border-purple-400/60 hover:bg-purple-500/20"
               >
                 <span>{HOME_CONTENT.links.preview}</span>
                 <span className="text-base">↗</span>
@@ -90,7 +90,7 @@ const Home = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.8, ease: "easeOut" }}
-                className="space-y-8"
+                className="space-y-8 md:py-4"
               >
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-200/90">
                   {HOME_CONTENT.hero.badge}
@@ -296,7 +296,7 @@ const Home = () => {
               <div className="mx-auto max-w-lg">
                 <NewsletterSubscription />
               </div>
-              <div className="flex flex-wrap justify-center gap-6 text-xs font-semibold uppercase tracking-[0.3em] text-blue-50/60">
+              <div className="flex flex-wrap justify-center gap-6 text-xs font-semibold uppercase tracking-[0.2em] text-blue-50/60">
                 {HOME_CONTENT.sections.cta.features.map((feature) => (
                   <span key={feature}>{feature}</span>
                 ))}
