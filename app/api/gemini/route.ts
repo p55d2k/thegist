@@ -8,6 +8,7 @@ import {
 } from "@/lib/firestore";
 import { formatArticles, formatRawBody, formatBody } from "@/lib/email";
 import { getDateString } from "@/lib/date";
+import { EMAIL_CONFIG } from "@/constants/email";
 
 const AUTH_HEADER = "authorization";
 
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
     formattedRawText: formatRawBody(formatted, sendId),
     aiMetadata: formatted.aiMetadata,
     summaryText: formatted.plan.summary,
-    emailSubject: `The Gist - ${getDateString()}`,
+    emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
   });
 
   return NextResponse.json(

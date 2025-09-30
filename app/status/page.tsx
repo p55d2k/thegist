@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
 interface EmailSendStatus {
@@ -34,6 +35,7 @@ interface StatusResponse {
 }
 
 export default function StatusPage() {
+  const router = useRouter();
   const [recentSends, setRecentSends] = useState<EmailSendStatus[]>([]);
   const [selectedStatus, setSelectedStatus] = useState<EmailSendStatus | null>(
     null
@@ -173,6 +175,12 @@ export default function StatusPage() {
 
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
+      <button
+        onClick={() => router.back()}
+        className="mb-4 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
+      >
+        ← Back
+      </button>
       <header className="space-y-4">
         <motion.h1
           initial={{ opacity: 0, y: -20 }}

@@ -4,73 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import NewsletterSubscription from "@/components/NewsletterSubscription";
-
-const howItWorks = [
-  {
-    icon: "🤖",
-    title: "AI does the reading",
-    description:
-      "Our AI skims major outlets, niche blogs, and everything in between so you don't have to.",
-  },
-  {
-    icon: "✂️",
-    title: "Cuts through the noise",
-    description:
-      "No doom-scroll, no filler. Just the stories that actually affect your day and why they matter.",
-  },
-  {
-    icon: "📬",
-    title: "Hits your inbox",
-    description:
-      "One email at 7:30am. Read it with coffee, feel informed all day. Unsubscribe any time.",
-  },
-];
-
-const whatYouGet = [
-  {
-    label: "The day's top stories",
-    value: "📰",
-    detail:
-      "3-5 headlines worth your attention, explained clearly without assuming you have a poli-sci degree.",
-  },
-  {
-    label: "Why it matters",
-    value: "🔍",
-    detail:
-      "Quick context on what changed, who it impacts, and why you should care in plain language.",
-  },
-  {
-    label: "Quick hits",
-    value: "⚡",
-    detail:
-      "Other stories worth knowing in bullet form. Skimmable in 30 seconds flat.",
-  },
-];
-
-const honestAnswers = [
-  {
-    question: "“Is this actually unbiased?”",
-    answer:
-      "Nope. True objectivity doesn't exist. We pull from left, right, and international outlets so you see multiple angles on the same story.",
-  },
-  {
-    question: "“Can I trust an AI?”",
-    answer:
-      "Think of it as your smart friend who reads everything. Our AI summarizes and cross-checks sources, and we link to every original article.",
-  },
-  {
-    question: "“Why is this free?”",
-    answer:
-      "We're building in public. While we experiment, The Gist stays free. If we add a paid tier later, you'll hear it from us first.",
-  },
-];
-
-const subscriberAvatars = [
-  { initials: "AR", gradient: "from-blue-500 to-cyan-500" },
-  { initials: "JM", gradient: "from-purple-500 to-indigo-500" },
-  { initials: "SK", gradient: "from-emerald-500 to-teal-500" },
-  { initials: "+4k", gradient: "from-slate-500 to-slate-600" },
-];
+import { HOME_CONTENT } from "@/constants/ui";
+import { APP_CONFIG, EMAIL_DELIVERY_TIME } from "@/constants/config";
 
 const Home = () => {
   return (
@@ -141,7 +76,7 @@ const Home = () => {
                 target="_blank"
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 font-medium text-white transition hover:border-purple-400/60 hover:bg-purple-500/20"
               >
-                <span>Preview today&apos;s brief</span>
+                <span>{HOME_CONTENT.links.preview}</span>
                 <span className="text-base">↗</span>
               </Link>
             </div>
@@ -157,10 +92,8 @@ const Home = () => {
                 transition={{ duration: 0.8, ease: "easeOut" }}
                 className="space-y-8"
               >
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.4em] text-blue-200/90">
-                  AI READS IT
-                  <span className="h-1 w-1 rounded-full bg-blue-200/80" />
-                  YOU GET THE GIST
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-200/90">
+                  {HOME_CONTENT.hero.badge}
                 </div>
 
                 <motion.h1
@@ -169,7 +102,7 @@ const Home = () => {
                   transition={{ duration: 0.6, delay: 0.2 }}
                   className="text-4xl font-black leading-tight text-white sm:text-5xl lg:text-6xl"
                 >
-                  News for people who don&apos;t read the news.
+                  {HOME_CONTENT.hero.title}
                 </motion.h1>
 
                 <motion.p
@@ -178,9 +111,7 @@ const Home = () => {
                   transition={{ duration: 0.6, delay: 0.25 }}
                   className="max-w-xl text-lg leading-relaxed text-slate-200 sm:text-xl"
                 >
-                  Our AI reads 100+ sources every day and tells you what
-                  actually matters. No clickbait. No doom-scrolling. Just the
-                  important stuff in five minutes.
+                  {HOME_CONTENT.hero.description}
                 </motion.p>
               </motion.div>
 
@@ -207,16 +138,14 @@ const Home = () => {
                     How it works
                   </p>
                   <h2 className="text-3xl font-bold text-white sm:text-4xl">
-                    Honest, accessible, actually useful.
+                    {HOME_CONTENT.sections.howItWorks.title}
                   </h2>
                   <p className="max-w-2xl text-base text-slate-200">
-                    The Gist is the five-minute newsletter for people who would
-                    rather live their lives than doom-scroll. Here&apos;s what
-                    the AI handles for you.
+                    {HOME_CONTENT.sections.howItWorks.description}
                   </p>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
-                  {howItWorks.map((item, index) => (
+                  {HOME_CONTENT.howItWorks.map((item, index) => (
                     <motion.div
                       key={item.title}
                       initial={{ opacity: 0, y: 20 }}
@@ -250,7 +179,7 @@ const Home = () => {
             >
               <div className="flex items-center gap-2">
                 <div className="flex -space-x-2">
-                  {subscriberAvatars.map((avatar) => (
+                  {HOME_CONTENT.subscriberAvatars.map((avatar) => (
                     <span
                       key={avatar.initials}
                       className={`grid h-9 w-9 place-items-center rounded-full border border-white/20 bg-gradient-to-br ${avatar.gradient} text-xs font-semibold text-white`}
@@ -259,7 +188,7 @@ const Home = () => {
                     </span>
                   ))}
                 </div>
-                <span>4,200+ people skipping the doom-scroll</span>
+                <span>{HOME_CONTENT.subscriberCount}</span>
               </div>
               <div className="flex items-center gap-2 rounded-full border border-emerald-300/40 bg-emerald-400/10 px-4 py-2 text-emerald-200">
                 <span className="text-base">★</span>
@@ -275,16 +204,14 @@ const Home = () => {
                   What you get
                 </p>
                 <h2 className="text-3xl font-bold text-white sm:text-4xl">
-                  Get the gist in five minutes.
+                  {HOME_CONTENT.sections.whatYouGet.title}
                 </h2>
                 <p className="max-w-2xl text-base text-slate-200">
-                  Every brief answers three questions: what happened, why it
-                  matters, and what else should be on your radar. Everything is
-                  linked so you can go deeper when you want.
+                  {HOME_CONTENT.sections.whatYouGet.description}
                 </p>
               </div>
               <div className="grid gap-6 md:grid-cols-3">
-                {whatYouGet.map((point, index) => (
+                {HOME_CONTENT.whatYouGet.map((point, index) => (
                   <motion.div
                     key={point.label}
                     initial={{ opacity: 0, y: 20 }}
@@ -322,14 +249,13 @@ const Home = () => {
                 The honest part
               </p>
               <h2 className="text-3xl font-bold text-white sm:text-4xl">
-                We don&apos;t pretend AI is magic.
+                {HOME_CONTENT.sections.honest.title}
               </h2>
               <p className="max-w-2xl text-base text-slate-200">
-                Staying informed shouldn&apos;t feel like homework. Here&apos;s
-                how we keep it real about what the AI can (and can&apos;t) do.
+                {HOME_CONTENT.sections.honest.description}
               </p>
               <div className="space-y-5">
-                {honestAnswers.map((item) => (
+                {HOME_CONTENT.honestAnswers.map((item) => (
                   <div
                     key={item.question}
                     className="rounded-2xl border border-white/10 bg-white/5 p-5 text-slate-100 shadow-inner shadow-blue-500/10"
@@ -345,7 +271,7 @@ const Home = () => {
                 href="/email-preview"
                 className="inline-flex items-center gap-2 rounded-full border border-blue-400/50 bg-blue-500/10 px-6 py-3 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/20"
               >
-                See today&apos;s brief ↗
+                {HOME_CONTENT.links.seeBrief}
               </Link>
             </motion.div>
           </section>
@@ -358,23 +284,22 @@ const Home = () => {
               transition={{ duration: 0.6 }}
               className="space-y-6"
             >
-              <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-blue-50">
-                Join 4,200+ who get the gist
+              <p className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-5 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-blue-50">
+                {HOME_CONTENT.sections.cta.badge}
               </p>
               <h2 className="text-3xl font-bold text-white sm:text-4xl">
-                Get tomorrow&apos;s brief—free, fast, no BS.
+                {HOME_CONTENT.sections.cta.title}
               </h2>
               <p className="mx-auto max-w-2xl text-base text-blue-50/90">
-                Delivered at 7:30am every weekday. Read it in five minutes, know
-                what happened, and skip the doom-scroll. Unsubscribe any time.
+                {HOME_CONTENT.sections.cta.description}
               </p>
               <div className="mx-auto max-w-lg">
                 <NewsletterSubscription />
               </div>
               <div className="flex flex-wrap justify-center gap-6 text-xs font-semibold uppercase tracking-[0.3em] text-blue-50/60">
-                <span>5 minute read</span>
-                <span>No clickbait</span>
-                <span>Cancel anytime</span>
+                {HOME_CONTENT.sections.cta.features.map((feature) => (
+                  <span key={feature}>{feature}</span>
+                ))}
               </div>
             </motion.div>
           </section>
@@ -385,11 +310,9 @@ const Home = () => {
                 TG
               </div>
               <div>
-                <p className="text-white">
-                  Made by people who think staying informed shouldn&apos;t suck.
-                </p>
+                <p className="text-white">{HOME_CONTENT.footer.madeBy}</p>
                 <p className="text-slate-500">
-                  © {new Date().getFullYear()} p55d2k. All rights reserved.
+                  {HOME_CONTENT.footer.copyright(new Date().getFullYear())}
                 </p>
               </div>
             </div>

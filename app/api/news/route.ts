@@ -9,6 +9,12 @@ import {
   createNewsletterJobFromNews,
   type SerializedTopicNewsGroup,
 } from "@/lib/firestore";
+import {
+  DEFAULT_LIMITS,
+  ONE_DAY_MS,
+  CACHE_HEADERS,
+  USER_AGENT,
+} from "@/constants/config";
 
 const AUTH_HEADER = "authorization";
 
@@ -40,9 +46,9 @@ export async function GET(req: NextRequest) {
   const batchSizeParam = searchParams.get("batchSize");
   const batchSize = Number.isFinite(Number(batchSizeParam))
     ? Math.max(1, Number.parseInt(batchSizeParam ?? "50", 10))
-    : 50;
+    : DEFAULT_LIMITS.batchSize;
 
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const twentyFourHoursAgo = new Date(Date.now() - ONE_DAY_MS);
 
   const groupedResults = await Promise.all(
     links.map(
@@ -57,7 +63,7 @@ export async function GET(req: NextRequest) {
         const normalizedHints: NewsletterSectionHint[] = sectionHints ?? [];
         try {
           const response = await axios.get(url, {
-            headers: { "User-Agent": "Mozilla/5.0" },
+            headers: { "User-Agent": USER_AGENT },
           });
           const result = await parseStringPromise(response.data);
 
@@ -233,13 +239,10 @@ export async function GET(req: NextRequest) {
     { status: 200 }
   );
 
-  response.headers.set(
-    "Cache-Control",
-    "no-store, no-cache, must-revalidate, proxy-revalidate"
-  );
-  response.headers.set("Pragma", "no-cache");
-  response.headers.set("Expires", "0");
-  response.headers.set("Surrogate-Control", "no-store");
+  response.headers.set("Cache-Control", CACHE_HEADERS["Cache-Control"]);
+  response.headers.set("Pragma", CACHE_HEADERS.Pragma);
+  response.headers.set("Expires", CACHE_HEADERS.Expires);
+  response.headers.set("Surrogate-Control", CACHE_HEADERS["Surrogate-Control"]);
 
   return response;
 }

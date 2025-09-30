@@ -1,89 +1,14 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  GEMINI_CONFIG,
+  SECTION_LIMITS,
+  SECTION_HINT_MAP,
+  SECTION_KEYWORDS,
+  SECTION_TOKEN_MAP,
+} from "@/constants/gemini";
 
-const MAX_INPUT_ARTICLES = 60;
-const DEFAULT_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
-const SECTION_LIMITS: Record<
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
-  number
-> = {
-  commentaries: 7,
-  international: 3,
-  politics: 3,
-  businessAndTech: 3,
-  wildCard: 1,
-};
-
-const SECTION_HINT_MAP: Record<
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
-  NewsletterSectionHint
-> = {
-  commentaries: "commentaries",
-  international: "international",
-  politics: "politics",
-  businessAndTech: "business-tech",
-  wildCard: "wildcard",
-};
-
-const SECTION_KEYWORDS: Partial<
-  Record<
-    keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
-    RegExp[]
-  >
-> = {
-  commentaries: [
-    /opinion/i,
-    /analysis/i,
-    /commentary/i,
-    /column/i,
-    /editorial/i,
-    /perspective/i,
-  ],
-  international: [
-    /world/i,
-    /global/i,
-    /asia/i,
-    /middle east/i,
-    /europe/i,
-    /africa/i,
-    /latin america/i,
-    /international/i,
-  ],
-  politics: [
-    /politic/i,
-    /government/i,
-    /policy/i,
-    /election/i,
-    /congress/i,
-    /parliament/i,
-    /white house/i,
-    /senate/i,
-  ],
-  businessAndTech: [
-    /business/i,
-    /market/i,
-    /econom/i,
-    /startup/i,
-    /tech/i,
-    /technology/i,
-    /finance/i,
-    /industry/i,
-  ],
-  wildCard: [/culture/i, /science/i, /sport/i, /arts?/i, /feature/i, /trend/i],
-};
-
-const SECTION_TOKEN_MAP: Record<
-  string,
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">
-> = {
-  commentaries: "commentaries",
-  international: "international",
-  politics: "politics",
-  businessandtech: "businessAndTech",
-  businessandtechnology: "businessAndTech",
-  business: "businessAndTech",
-  wildcard: "wildCard",
-  wildcardfeature: "wildCard",
-};
+const MAX_INPUT_ARTICLES = GEMINI_CONFIG.maxInputArticles;
+const DEFAULT_MODEL = process.env.GEMINI_MODEL ?? GEMINI_CONFIG.defaultModel;
 
 const normalizeSectionToken = (
   token: string

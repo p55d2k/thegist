@@ -3,6 +3,7 @@ import {
   generateNewsletterPlanFallback,
 } from "@/lib/gemini";
 import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
+import { EMAIL_CONTENT, HTML_ENTITIES } from "@/constants/email";
 
 export interface FormattedArticles {
   plan: GeminiNewsletterPlan;
@@ -45,14 +46,7 @@ const SECTION_COPY: Record<
 };
 
 const decodeHtmlEntities = (value: string): string => {
-  const namedEntities: Record<string, string> = {
-    amp: "&",
-    lt: "<",
-    gt: ">",
-    quot: '"',
-    apos: "'",
-    nbsp: " ",
-  };
+  const namedEntities: Record<string, string> = HTML_ENTITIES.named;
 
   return value.replace(
     /&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g,
@@ -78,8 +72,10 @@ const stripHtml = (value: string): string =>
       .trim()
   );
 
-const truncate = (value: string, length = 220): string =>
-  value.length > length ? `${value.slice(0, length - 1)}…` : value;
+const truncate = (
+  value: string,
+  length: number = EMAIL_CONTENT.truncateLength
+): string => (value.length > length ? `${value.slice(0, length - 1)}…` : value);
 
 const escapeHtml = (value: string): string =>
   value
@@ -90,10 +86,10 @@ const escapeHtml = (value: string): string =>
     .replace(/'/g, "&#39;");
 
 const formatDate = (date: Date): string =>
-  new Intl.DateTimeFormat("en-SG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  new Intl.DateTimeFormat(
+    EMAIL_CONTENT.dateLocale,
+    EMAIL_CONTENT.dateOptions
+  ).format(date);
 
 const formatMeta = (item: NewsletterSectionItem): string => {
   const formattedDate = formatDate(new Date(item.pubDate));
@@ -114,7 +110,7 @@ const renderHighlightCard = (
       item.title
     )}</h3>
     <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 12px 0;">${escapeHtml(
-      truncate(stripHtml(item.summary), 200)
+      truncate(stripHtml(item.summary), EMAIL_CONTENT.summaryTruncateLength)
     )}</p>
     <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
       item.link
@@ -191,7 +187,7 @@ const renderWildCard = (items: NewsletterSectionItem[]): string => {
         item.title
       )}</h3>
       <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 12px 0;">${escapeHtml(
-        truncate(stripHtml(item.summary), 260)
+        truncate(stripHtml(item.summary), EMAIL_CONTENT.wildCardTruncateLength)
       )}</p>
       <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
         item.link

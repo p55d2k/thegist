@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addSubscriber } from "@/lib/firestore";
+import { EMAIL_REGEX } from "@/constants/config";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,8 +12,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!EMAIL_REGEX.test(email)) {
       return NextResponse.json(
         { error: "Invalid email format" },
         { status: 400 }

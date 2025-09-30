@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEmailSendStatus, getRecentEmailSends } from "@/lib/firestore";
+import { DEFAULT_LIMITS } from "@/constants/config";
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Otherwise, get recent sends
-    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const limitNum = limit ? parseInt(limit, 10) : DEFAULT_LIMITS.recentSends;
     const recentSends = await getRecentEmailSends(limitNum);
 
     return NextResponse.json({

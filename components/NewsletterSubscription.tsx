@@ -160,7 +160,7 @@ export default function NewsletterSubscription({
         className="mt-6 text-center"
       >
         <p className="text-[10px] sm:text-xs uppercase tracking-[0.2em] sm:tracking-[0.3em] text-slate-400">
-          🔒 Your email is safe with us. Unsubscribe anytime.
+          Your email is safe with us. Unsubscribe anytime.
         </p>
       </motion.div>
     </motion.div>

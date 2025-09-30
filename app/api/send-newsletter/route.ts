@@ -7,6 +7,8 @@ import {
   markNewsletterJobAsSending,
   recordNewsletterSendBatch,
 } from "@/lib/firestore";
+import { EMAIL_CONFIG } from "@/constants/email";
+import { DEFAULT_LIMITS } from "@/constants/config";
 
 const AUTH_HEADER = "authorization";
 
@@ -33,9 +35,9 @@ const buildTransporter = async () => {
   }
 
   const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    host: EMAIL_CONFIG.smtp.host,
+    port: EMAIL_CONFIG.smtp.port,
+    secure: EMAIL_CONFIG.smtp.secure,
     auth: {
       user: process.env.GOOGLE_USER_EMAIL,
       pass: process.env.GOOGLE_APP_PASSWORD,
@@ -129,11 +131,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const batchSize = Math.max(1, job.batchSize ?? 50);
+  const batchSize = Math.max(1, job.batchSize ?? DEFAULT_LIMITS.batchSize);
 
   const maxBatches = Number.isFinite(payload.maxBatches)
     ? Math.max(1, Number(payload.maxBatches))
-    : 1;
+    : DEFAULT_LIMITS.maxBatches;
 
   let transporter: nodemailer.Transporter | null = null;
   try {
@@ -164,12 +166,12 @@ export async function POST(request: NextRequest) {
 
     try {
       const info = await transporter.sendMail({
-        from: `"The Gist" <${process.env.GOOGLE_USER_EMAIL}>`,
+        from: EMAIL_CONFIG.from(process.env.GOOGLE_USER_EMAIL!),
         to: process.env.GOOGLE_USER_EMAIL,
         bcc: batchRecipients.join(", "),
         subject:
           job.emailSubject ??
-          `The Gist - ${new Date().toDateString()}`,
+          EMAIL_CONFIG.defaultSubject(new Date().toDateString()),
         text: job.formattedRawText,
         html: job.formattedHtml,
       });
