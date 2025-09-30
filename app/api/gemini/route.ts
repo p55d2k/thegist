@@ -6,7 +6,7 @@ import {
   saveNewsletterPlanStage,
   type SerializedTopicNewsGroup,
 } from "@/lib/firestore";
-import { formatArticles, formatRawBody } from "@/lib/email";
+import { formatArticles, formatRawBody, formatBody } from "@/lib/email";
 import { getDateString } from "@/lib/date";
 
 const AUTH_HEADER = "authorization";
@@ -119,7 +119,8 @@ export async function POST(request: NextRequest) {
   const formatted = await formatArticles(topics);
 
   await saveNewsletterPlanStage(sendId, {
-    formattedHtml: formatted.html,
+    // Ensure the saved HTML includes the sendId so sent emails match the preview
+    formattedHtml: formatBody(formatted, sendId),
     formattedText: formatted.text,
     formattedRawText: formatRawBody(formatted, sendId),
     aiMetadata: formatted.aiMetadata,

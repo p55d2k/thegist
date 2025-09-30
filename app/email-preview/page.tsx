@@ -1,4 +1,8 @@
-import { formatArticlesWithoutGemini, formatBody } from "@/lib/email";
+import {
+  formatArticlesWithoutGemini,
+  formatBody,
+  formatRawBody,
+} from "@/lib/email";
 
 type SerializedProcessedNewsItem = Omit<ProcessedNewsItem, "pubDate"> & {
   pubDate: string;
@@ -172,7 +176,13 @@ const EmailPreview = async () => {
       topics,
       "Email preview rendered without Gemini"
     );
-    const htmlEmail = formatBody(formatted, "preview");
+
+    // Mock send ID for preview verification. In production this will be a
+    // real unique send identifier returned by the send pipeline.
+    const mockSendId = `preview-${new Date().toISOString()}`;
+
+    const htmlEmail = formatBody(formatted, mockSendId);
+    const plainText = formatRawBody(formatted, mockSendId);
 
     return (
       <main className="mx-auto max-w-5xl space-y-8 px-6 py-10">
@@ -214,7 +224,7 @@ const EmailPreview = async () => {
             Plaintext version
           </h2>
           <pre className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            {formatted.text}
+            {plainText}
           </pre>
         </section>
 
