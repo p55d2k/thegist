@@ -91,6 +91,22 @@ The app will be available at `http://localhost:3000`.
 
 Visit `http://localhost:3000/email-preview` to preview the newsletter content and styling before sending.
 
+### Email Status Dashboard
+
+Visit `http://localhost:3000/status` to monitor newsletter email delivery:
+
+- **Recent Sends**: View the last 20 email sends with their status (pending, success, failed)
+- **Search by ID**: Look up specific send attempts using the send ID returned by the newsletter API
+- **Detailed Information**: For each send, see:
+  - Send status and timestamps
+  - Recipient count and delivery success rate
+  - Article summary (count of articles, topics, publishers)
+  - NodeMailer response details (message ID, accepted/rejected recipients)
+  - Error messages for failed sends
+- **Auto-refresh**: Automatically refreshes pending sends every 30 seconds
+
+The status page helps verify email delivery after getting a 200 response from the newsletter API, providing confidence that emails were actually sent successfully.
+
 ### Gemini Testing
 
 Visit `http://localhost:3000/gemini-test` to test Gemini API configurations and debug newsletter generation.
@@ -177,11 +193,56 @@ Triggers the newsletter sending process. Fetches commentaries, uses AI to organi
 ```json
 {
   "message": "Newsletter generation and sending started",
+  "sendId": "a1b2c3d4",
   "summary": {
     "totalArticles": 5,
     "totalTopics": 3,
     "totalPublishers": 2
   }
+}
+```
+
+#### GET `/api/status`
+
+Checks the delivery status of newsletter emails. Can retrieve recent sends or check a specific send ID.
+
+**Query Parameters:**
+
+- `id` (optional): Specific send ID to check
+- `limit` (optional): Number of recent sends to retrieve (default: 20)
+
+**Response for specific ID:**
+
+```json
+{
+  "status": {
+    "id": "a1b2c3d4",
+    "startedAt": "2024-01-01T10:00:00Z",
+    "completedAt": "2024-01-01T10:01:30Z",
+    "status": "success",
+    "totalRecipients": 10,
+    "successfulRecipients": 10,
+    "failedRecipients": 0,
+    "nodeMailerResponse": {
+      "messageId": "<abc123@gmail.com>",
+      "accepted": ["user1@example.com", "user2@example.com"],
+      "rejected": []
+    },
+    "articlesSummary": {
+      "totalArticles": 5,
+      "totalTopics": 3,
+      "totalPublishers": 2
+    }
+  }
+}
+```
+
+**Response for recent sends:**
+
+```json
+{
+  "recentSends": [...],
+  "count": 20
 }
 ```
 

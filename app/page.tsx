@@ -139,24 +139,38 @@ const Home = () => {
             transition={{ duration: 0.6, delay: 1.4 }}
             className="pt-8 space-y-4"
           >
-            <Link
-              href="https://github.com/p55d2k/zk-newsletter"
-              target="_blank"
-              className="inline-flex items-center gap-2 text-blue-300 hover:text-blue-200 transition-colors duration-200 text-lg font-medium group"
-            >
-              <motion.span
-                whileHover={{ x: 5 }}
-                className="transition-transform duration-200"
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+              <Link
+                href="/status"
+                className="inline-flex items-center gap-2 text-green-300 hover:text-green-200 transition-colors duration-200 text-base font-medium group"
               >
-                View Source Code on GitHub
-              </motion.span>
-              <motion.span
-                whileHover={{ x: 3 }}
-                className="transition-transform duration-200"
+                <motion.span
+                  whileHover={{ x: 5 }}
+                  className="transition-transform duration-200"
+                >
+                  📊 Email Status Dashboard
+                </motion.span>
+              </Link>
+
+              <Link
+                href="https://github.com/p55d2k/zk-newsletter"
+                target="_blank"
+                className="inline-flex items-center gap-2 text-blue-300 hover:text-blue-200 transition-colors duration-200 text-base font-medium group"
               >
-                →
-              </motion.span>
-            </Link>
+                <motion.span
+                  whileHover={{ x: 5 }}
+                  className="transition-transform duration-200"
+                >
+                  View Source Code on GitHub
+                </motion.span>
+                <motion.span
+                  whileHover={{ x: 3 }}
+                  className="transition-transform duration-200"
+                >
+                  →
+                </motion.span>
+              </Link>
+            </div>
           </motion.div>
         </div>
       </div>

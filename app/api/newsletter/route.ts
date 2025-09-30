@@ -9,7 +9,11 @@ import {
   formatRawBody,
   type FormattedArticles,
 } from "@/lib/email";
-import { getActiveSubscribers } from "@/lib/firestore";
+import {
+  getActiveSubscribers,
+  createEmailSendStatus,
+  updateEmailSendStatus,
+} from "@/lib/firestore";
 import { getDateString, getTime } from "@/lib/date";
 
 export async function GET(req: NextRequest, res: NextResponse) {
@@ -69,7 +73,6 @@ export async function GET(req: NextRequest, res: NextResponse) {
     })
     .filter((group): group is TopicNewsGroup => !!group);
 
-  // Calculate basic summary before processing
   const totalTopics = commentaryGroups.length;
   const totalArticles = commentaryGroups.reduce(
     (sum, group) => sum + group.items.length,
@@ -79,10 +82,18 @@ export async function GET(req: NextRequest, res: NextResponse) {
     commentaryGroups.map((group) => group.publisher)
   ).size;
 
+  // Generate unique ID for this email send
+  const sendId = crypto
+    .getRandomValues(new Uint32Array(1))[0]
+    .toString(36)
+    .padStart(8, "0")
+    .slice(0, 8);
+
   // Respond immediately to avoid cron timeout
   const response = NextResponse.json(
     {
       message: "Newsletter generation and sending started",
+      sendId,
       summary: {
         totalArticles,
         totalTopics,
@@ -102,18 +113,54 @@ export async function GET(req: NextRequest, res: NextResponse) {
 
   // Process newsletter in background
   process.nextTick(async () => {
+    let errorDetails = "";
+    let recipientCount = 0;
+
     try {
       // Get active subscribers from Firestore
       const recipients = await getActiveSubscribers();
+      recipientCount = recipients.length;
 
       if (recipients.length === 0) {
         console.log("No active subscribers found");
+        await updateEmailSendStatus(
+          sendId,
+          "failed",
+          undefined,
+          "No active subscribers found",
+          0,
+          0
+        );
         return;
       }
+
+      console.log(
+        `Starting newsletter send ${sendId} to ${recipients.length} subscribers`
+      );
+
+      // Create initial status record
+      await createEmailSendStatus(sendId, recipients.length, {
+        totalArticles,
+        totalTopics,
+        totalPublishers,
+      });
+
+      console.log(
+        `Processing ${totalArticles} articles from ${totalTopics} topics and ${totalPublishers} publishers`
+      );
 
       const formattedArticles: FormattedArticles = await formatArticles(
         commentaryGroups
       );
+
+      console.log(`Articles formatted successfully for send ${sendId}`);
+
+      // Validate environment variables
+      if (!process.env.GOOGLE_USER_EMAIL || !process.env.GOOGLE_APP_PASSWORD) {
+        throw new Error(
+          "Missing email configuration: GOOGLE_USER_EMAIL or GOOGLE_APP_PASSWORD not set"
+        );
+      }
 
       const transporter = nodemailer.createTransport({
         host: "smtp.gmail.com",
@@ -125,27 +172,88 @@ export async function GET(req: NextRequest, res: NextResponse) {
         },
       });
 
-      const id = crypto
-        .getRandomValues(new Uint32Array(1))[0]
-        .toString(36)
-        .padStart(8, "0")
-        .slice(0, 8);
+      // Verify SMTP connection
+      try {
+        await transporter.verify();
+        console.log(`SMTP connection verified for send ${sendId}`);
+      } catch (verifyError) {
+        throw new Error(
+          `SMTP connection failed: ${
+            verifyError instanceof Error ? verifyError.message : "Unknown error"
+          }`
+        );
+      }
 
       const data = {
         from: `"ZK Daily Intelligence Brief" <${process.env.GOOGLE_USER_EMAIL}>`,
         to: process.env.GOOGLE_USER_EMAIL,
         bcc: recipients.join(", "),
-        subject: `ZK Daily Intelligence Brief - ${getDateString()} | ID: ${id}`,
-        text: formatRawBody(formattedArticles, id),
-        html: formatBody(formattedArticles, id),
+        subject: `ZK Daily Intelligence Brief - ${getDateString()} | ID: ${sendId}`,
+        text: formatRawBody(formattedArticles, sendId),
+        html: formatBody(formattedArticles, sendId),
       };
 
+      console.log(`Sending newsletter ${sendId} with subject: ${data.subject}`);
+
       let info = await transporter.sendMail(data);
+
       console.log(
-        `Newsletter sent to ${recipients.length} subscribers: ${info.messageId}`
+        `Newsletter ${sendId} sent successfully to ${recipients.length} subscribers`
+      );
+      console.log(`Message ID: ${info.messageId}`);
+      console.log(`Accepted: ${JSON.stringify(info.accepted)}`);
+      console.log(`Rejected: ${JSON.stringify(info.rejected)}`);
+
+      // Calculate successful/failed recipients
+      const successfulCount = Array.isArray(info.accepted)
+        ? info.accepted.length
+        : recipients.length;
+      const failedCount = Array.isArray(info.rejected)
+        ? info.rejected.length
+        : 0;
+
+      // Prepare clean NodeMailer response (remove undefined fields)
+      const cleanResponse: any = {};
+      if (info.messageId) cleanResponse.messageId = info.messageId;
+      if (info.accepted) cleanResponse.accepted = info.accepted;
+      if (info.rejected) cleanResponse.rejected = info.rejected;
+      if (info.pending) cleanResponse.pending = info.pending;
+      if (info.response) cleanResponse.response = info.response;
+
+      // Update status with success
+      await updateEmailSendStatus(
+        sendId,
+        "success",
+        cleanResponse,
+        undefined,
+        successfulCount,
+        failedCount
       );
     } catch (error) {
-      console.error("Error processing newsletter:", error);
+      errorDetails =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      console.error(`Error processing newsletter ${sendId}:`, error);
+
+      if (error instanceof Error && error.stack) {
+        console.error(`Stack trace for ${sendId}:`, error.stack);
+      }
+
+      // Update status with failure
+      try {
+        await updateEmailSendStatus(
+          sendId,
+          "failed",
+          undefined,
+          errorDetails,
+          0,
+          recipientCount
+        );
+      } catch (updateError) {
+        console.error(
+          `Failed to update status for failed send ${sendId}:`,
+          updateError
+        );
+      }
     }
   });
 
