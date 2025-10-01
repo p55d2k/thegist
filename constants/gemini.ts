@@ -1,7 +1,7 @@
 // Gemini AI configuration constants
 export const GEMINI_CONFIG = {
   maxInputArticles: 60,
-  defaultModel: "gemini-2.5-flash",
+  defaultModel: "gemini-1.5-flash-8b",
 } as const;
 
 export const SECTION_LIMITS: Record<

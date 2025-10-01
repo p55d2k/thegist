@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="256" height="256" viewBox="0 0 256 256"
+     role="img" aria-label="The Gist logo — stylized G with leaf">
+  <defs>
+    <!-- natural leaf gradient -->
+    <linearGradient id="leafGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7BE495"/>
+      <stop offset="1" stop-color="#2CC48B"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded 'G' body (open circle implies "summary", gap accepts leaf) -->
+  <circle cx="128" cy="128" r="72"
+          stroke="#FFFFFF" stroke-width="18" stroke-linecap="round"
+          fill="none" stroke-dasharray="380 60"
+          transform="rotate(-20 128 128)"/>
+
+  <!-- small inner bar to read as a 'G' (keeps the mark readable at small sizes) -->
+  <path d="M156 128 H132"
+        stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" />
+
+  <!-- leaf that sprouts from the gap — natural + fresh -->
+  <path d="M188 110 C204 94 236 94 240 116 C236 142 206 150 188 132 C186 130 186 126 188 110 Z"
+        fill="url(#leafGrad)"/>
+
+  <!-- soft highlight on leaf for subtle depth -->
+  <path d="M208 116 C216 108 232 108 236 120 C232 136 220 138 208 126 C207 124 208 119 208 116 Z"
+        fill="#B9FFE9" opacity="0.45"/>
+</svg>

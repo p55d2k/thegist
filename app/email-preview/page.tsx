@@ -49,9 +49,21 @@ const EmailPreview = () => {
           items: group.items.map((item) => ({ ...item, link: "#" })),
         }));
         const formatted = await formatArticlesWithoutGemini(
-          previewTopics,
+          topics, // Use original topics for processing
           "Email preview with real newsletter data"
         );
+
+        // Replace all links with '#' for preview
+        const replaceLinks = (obj: any): any => {
+          if (typeof obj === "object" && obj !== null) {
+            if (obj.link) obj.link = "#";
+            for (const key in obj) {
+              replaceLinks(obj[key]);
+            }
+          }
+          return obj;
+        };
+        replaceLinks(formatted);
 
         // Mock send ID for preview verification. In production this will be a
         // real unique send identifier returned by the send pipeline.
@@ -87,7 +99,7 @@ const EmailPreview = () => {
     return (
       <main className="mx-auto max-w-6xl px-6 py-16">
         <button
-          onClick={() => router.back()}
+          onClick={() => router.push("/")}
           className="mb-4 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
         >
           ← Back
@@ -110,7 +122,7 @@ const EmailPreview = () => {
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <button
-        onClick={() => router.back()}
+        onClick={() => router.push("/")}
         className="mb-4 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
       >
         ← Back

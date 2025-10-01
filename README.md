@@ -1,12 +1,13 @@
 # The Gist
 
-A Next.js-based newsletter application that aggregates and emails curated commentaries from a curated list of publishers. The app fetches opinion pieces, groups them by topics, and sends personalized email digests to subscribers.
+A Next.js-based newsletter application that aggregates, deduplicates, and emails curated commentaries from multiple publishers. The app fetches opinion pieces, preprocesses them to reduce redundancy, organizes them into thematic sections using AI, and sends personalized email digests to subscribers.
 
 ## Features
 
 - **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business & tech, and a wildcard piece).
 - **Multi-Publisher Aggregation**: Pulls commentary feeds from ChannelNewsAsia, CNN, The Guardian, BBC, NPR, and Al Jazeera.
 - **Smart Filtering**: Keeps only commentary articles (based on per-feed rules) from the last 24 hours and drops duplicates across sources.
+- **Article Preprocessing**: Deduplicates and clusters similar articles to reduce redundancy while preserving coverage, enabling scaling to 100+ sources with 40-60% reduction in processing time and costs.
 - **Section-Based Organization**: Articles are categorized into Commentaries (5-7 pieces), International (2-3), Politics (2-3), Business & Tech (2-3), and one Wildcard.
 - **Email Delivery**: Sends a responsive HTML newsletter with optional imagery plus a plaintext fallback.
 - **Email Preview**: Preview the newsletter HTML and plaintext content before sending via a dedicated page.
@@ -21,7 +22,7 @@ A Next.js-based newsletter application that aggregates and emails curated commen
 ## Tech Stack
 
 - **Framework**: Next.js 14 with TypeScript
-- **AI**: Google Gemini 2.5 Flash for newsletter planning and curation
+- **AI**: Google Gemini 1.5 Flash for newsletter planning and curation
 - **Database**: Firebase/Firestore for subscriber management
 - **Styling**: Tailwind CSS with Framer Motion animations
 - **Email**: Nodemailer with Gmail SMTP
@@ -233,9 +234,27 @@ Sends the next batch (or batches) of recipients for a staged job. Requires the `
 }
 ```
 
-#### GET `/api/newsletter` (deprecated)
+#### POST `/api/preprocess`
 
-Returns `410 Gone` and points to the staged workflow (`/api/news`, `/api/gemini`, `/api/send-newsletter`). Retained only to fail fast if old automations hit it.
+Preprocesses articles for a newsletter job by deduplicating and clustering similar articles to reduce redundancy. Requires the `NEWSLETTER_JOB_TOKEN` bearer token. Provide `{ "sendId": "..." }` to target a specific job, or omit the body to automatically claim the oldest `news-ready` job. Saves preprocessed data back to Firestore for use by `/api/gemini`.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "sendId": "a1b2c3d4",
+  "stats": {
+    "originalCount": 120,
+    "afterDedupeCount": 105,
+    "clusterCount": 45,
+    "representativeCount": 48,
+    "reductionPercent": 40,
+    "processingTimeMs": 2847
+  },
+  "cached": false
+}
+```
 
 #### GET `/api/status`
 
@@ -296,8 +315,9 @@ Tests different Gemini configuration options.
 ### Automation with cron-job.org
 
 1. **Generate a shared token**: Set `NEWSLETTER_JOB_TOKEN` in your deployment environment and keep a copy for cron-job.org.
-2. **Create three HTTP jobs** (all `POST` except the first):
+2. **Create four HTTP jobs** (all `POST` except the first):
    - `GET https://<your-domain>/api/news`
+   - `POST https://<your-domain>/api/preprocess` (optional, for 100+ sources)
    - `POST https://<your-domain>/api/gemini`
    - `POST https://<your-domain>/api/send-newsletter`
 3. **Add the authorization header** to each job:
@@ -308,12 +328,13 @@ Tests different Gemini configuration options.
 
 4. **Schedule cadence**:
    - News fetch every hour (or more frequently if desired).
-   - Gemini plan 2–3 minutes after the news fetch to allow Firestore writes to settle.
+   - Preprocess 1-2 minutes after the news fetch (if using preprocessing).
+   - Gemini plan 2–3 minutes after preprocessing (or news fetch if not preprocessing) to allow Firestore writes to settle.
    - Send step 2–3 minutes after Gemini; set it to repeat every few minutes so retries happen automatically if a batch fails.
 5. **Timeouts & retries**: Set request timeout to ≥30 seconds and enable retries on failure so transient RSS or SMTP outages are retried automatically.
 6. **Monitoring**: Cron-job.org provides response logs; pair this with the `/status` dashboard or endpoint to confirm job completion.
 
-The pipeline is idempotent: `/api/gemini` and `/api/send-newsletter` automatically claim the oldest eligible job, so repeated cron runs are safe.
+The pipeline is idempotent: `/api/preprocess`, `/api/gemini` and `/api/send-newsletter` automatically claim the oldest eligible job, so repeated cron runs are safe.
 
 ### Testing the pipeline with curl
 
@@ -328,6 +349,15 @@ Fetch and persist the latest news:
 ```bash
 curl --request GET "http://localhost:3000/api/news" \
   --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
+```
+
+Preprocess articles (optional, for reducing article count):
+
+```bash
+curl --request POST "http://localhost:3000/api/preprocess" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data '{"sendId": "YOUR_SEND_ID"}'
 ```
 
 Generate the newsletter plan (omit the body to auto-claim the oldest job, or pass a specific `sendId`):
@@ -359,20 +389,21 @@ Responses include the latest job metadata so you can confirm when the queue reac
 
 ### Customization
 
-- **RSS Feeds**: Modify topics and URLs in `app/constants/links.ts`.
+- **RSS Feeds**: Modify topics and URLs in `constants/links.ts`.
 - **Email Templates**: Update styling and layout in `lib/email.ts`.
 - **AI Planning**: Customize Gemini prompts and section logic in `lib/gemini.ts`.
 - **Date/Time Utilities**: Customize greetings and formatting in `lib/date.ts`.
 - **Landing Page**: Modify the homepage design and content in `app/page.tsx`.
 - **Subscription Flow**: Customize the subscription component in `components/NewsletterSubscription.tsx`.
 - **Database Schema**: Extend subscriber data structure in `lib/firestore.ts`.
+- **Brand Assets**: Use `public/logo.svg` for light backgrounds and `public/logo-dark.svg` for dark backgrounds.
 
 ## Environment Variables
 
 - `GOOGLE_USER_EMAIL`: Gmail address for sending emails.
 - `GOOGLE_APP_PASSWORD`: Gmail app password.
 - `GEMINI_API_KEY`: Google Gemini API key for AI curation.
-- `GEMINI_MODEL`: Optional, defaults to "gemini-2.5-flash".
+- `GEMINI_MODEL`: Optional, defaults to "gemini-1.5-flash-8b".
 - `FIREBASE_API_KEY`: Firebase API key for Firestore access.
 - `FIREBASE_AUTH_DOMAIN`: Firebase auth domain.
 - `FIREBASE_PROJECT_ID`: Firebase project ID.
@@ -404,3 +435,4 @@ This project is private and not licensed for public use.
 - Subscriber data is stored securely in Firestore with email validation.
 - The landing page features responsive design with smooth animations.
 - For production deployment, consider using Vercel or Railway for Next.js hosting with Firebase integration.
+- **Preprocessing**: For scaling to 100+ sources, see `docs/PREPROCESSING.md` for details on the preprocessing pipeline that reduces article redundancy and processing costs.

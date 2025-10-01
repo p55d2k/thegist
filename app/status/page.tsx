@@ -176,7 +176,7 @@ export default function StatusPage() {
   return (
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <button
-        onClick={() => router.back()}
+        onClick={() => router.push("/")}
         className="mb-4 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
       >
         ← Back

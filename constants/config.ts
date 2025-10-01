@@ -7,9 +7,6 @@ export const APP_CONFIG = {
   github: "https://github.com/p55d2k/thegist",
 } as const;
 
-// Email delivery time
-export const EMAIL_DELIVERY_TIME = "7:30am" as const;
-
 // Cache control headers
 export const CACHE_HEADERS = {
   "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",

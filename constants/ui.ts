@@ -4,7 +4,7 @@ export const HOME_CONTENT = {
     badge: "AI READS IT • YOU GET THE GIST",
     title: "News for people who don't read the news.",
     description:
-      "Our AI reads 100+ sources every day and tells you what actually matters. No clickbait. No doom-scrolling. Just the important stuff in five minutes.",
+      "We scan dozens of sources every day and tells you what actually matters. No clickbait. No doom-scrolling. Just the important stuff in five minutes.",
   },
 
   howItWorks: [
@@ -24,7 +24,7 @@ export const HOME_CONTENT = {
       icon: "📬",
       title: "Hits your inbox",
       description:
-        "One email at 7:30am. Read it with coffee, feel informed all day. Unsubscribe any time.",
+        "One email by 7:30am. Read it with coffee, feel informed all day. Unsubscribe any time.",
     },
   ],
 
@@ -96,7 +96,7 @@ export const HOME_CONTENT = {
       badge: "Be among the first to get The Gist",
       title: "Get tomorrow's brief—free, fast, no BS.",
       description:
-        "Delivered at 7:30am every weekday. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",
+        "Delivered by 7:30am every day of the week. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",
       features: ["5 minute read", "No clickbait", "Cancel anytime"],
     },
   },
@@ -107,7 +107,7 @@ export const HOME_CONTENT = {
   },
 
   links: {
-    preview: "Preview today's brief",
-    seeBrief: "See today's brief ↗",
+    preview: "Preview our brief",
+    seeBrief: "See a brief ↗",
   },
 } as const;

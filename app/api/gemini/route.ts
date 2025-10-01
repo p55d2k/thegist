@@ -117,7 +117,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const formatted = await formatArticles(topics);
+  // If preprocessed data is available in the job, use it
+  // This happens when the workflow includes /api/preprocess between /news and /gemini
+  const topicsToUse = job.preprocessedTopics
+    ? deserializeTopics(job.preprocessedTopics)
+    : topics;
+
+  console.log(
+    `[gemini] Processing ${topicsToUse.length} topics (${
+      job.preprocessedTopics ? "preprocessed" : "original"
+    })`
+  );
+
+  const formatted = await formatArticles(topicsToUse);
 
   await saveNewsletterPlanStage(sendId, {
     // Ensure the saved HTML includes the sendId so sent emails match the preview

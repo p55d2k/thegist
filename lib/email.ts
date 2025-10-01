@@ -1,6 +1,6 @@
 import {
   generateNewsletterPlan,
-  generateNewsletterPlanFallback,
+  generateNewsletterPlanPreview,
 } from "@/lib/gemini";
 import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
 import { EMAIL_CONTENT, HTML_ENTITIES } from "@/constants/email";
@@ -261,7 +261,7 @@ const buildHtml = (formatted: FormattedArticles): string => {
               Here's the gist.
             </h1>
             <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
-              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today (${escapeHtml(
+              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed dozens of sources so you don't have to. Here's what actually matters today (${escapeHtml(
     generatedOn
   )}).
             </p>
@@ -371,7 +371,7 @@ const buildText = (formatted: FormattedArticles): string => {
 
   const textSections = [
     `THE GIST — ${generatedOn}`,
-    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed 100+ sources so you don't have to.`,
+    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed dozens of sources so you don't have to.`,
     `SUMMARY\n${summaryText}`,
     `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
     sectionToText(
@@ -472,7 +472,7 @@ export const formatArticlesWithoutGemini = async (
   fallbackReason = "Preview mode without Gemini"
 ): Promise<FormattedArticles> => {
   const uniqueArticles = collectUniqueArticles(topics);
-  const planResult = generateNewsletterPlanFallback(
+  const planResult = generateNewsletterPlanPreview(
     uniqueArticles,
     fallbackReason
   );

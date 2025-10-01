@@ -32,6 +32,11 @@ interface TopicLink {
   url: string;
   commentaryPrefix?: string;
   sectionHints?: NewsletterSectionHint[];
+  // Optional richer metadata to improve UI and planner signals
+  description?: string;
+  region?: string; // e.g. 'US', 'INT', 'ASIA'
+  language?: string; // e.g. 'en', 'es'
+  tags?: string[];
 }
 
 interface TopicNewsGroup {

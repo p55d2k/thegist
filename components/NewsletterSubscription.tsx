@@ -82,7 +82,7 @@ export default function NewsletterSubscription({
           Get the five-minute brief that tells you what actually matters.
           <br className="hidden sm:block" />
           <span className="block sm:inline font-semibold text-blue-200">
-            AI reads 100+ sources • No clickbait • Cancel anytime
+            AI reads dozens of sources • No clickbait • Cancel anytime
           </span>
         </p>
       </motion.div>

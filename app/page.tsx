@@ -4,23 +4,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import NewsletterSubscription from "@/components/NewsletterSubscription";
+import Logo from "@/components/Logo";
 import { HOME_CONTENT } from "@/constants/ui";
-import { APP_CONFIG, EMAIL_DELIVERY_TIME } from "@/constants/config";
 
 const Home = () => {
   return (
     <div className="min-h-screen w-full relative overflow-hidden bg-slate-950">
-      <div className="absolute inset-0 -z-20">
-        <Image
-          src="/bg.jpg"
-          alt="Background"
-          fill
-          className="object-cover"
-          priority
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-950/60 via-blue-950/40 to-purple-950/60" />
-      </div>
-
       <div className="absolute inset-0 -z-10 opacity-80">
         {[...Array(12)].map((_, i) => (
           <motion.div
@@ -59,8 +48,8 @@ const Home = () => {
             className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-lg"
           >
             <div className="flex items-center gap-3">
-              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 text-xl font-black text-white shadow-lg shadow-blue-500/40">
-                TG
+              <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-500 shadow-lg shadow-blue-500/40">
+                <Logo dark className="h-8 w-8" />
               </div>
               <div>
                 <p className="text-sm uppercase tracking-[0.1em] text-slate-300">
@@ -92,7 +81,7 @@ const Home = () => {
                 transition={{ duration: 0.8, ease: "easeOut" }}
                 className="space-y-8 md:py-4"
               >
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-200/90">
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] text-blue-200/90 font-mono">
                   {HOME_CONTENT.hero.badge}
                 </div>
 
@@ -307,7 +296,7 @@ const Home = () => {
           <footer className="grid gap-6 text-sm text-slate-400 sm:grid-cols-2 sm:items-center">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-sm font-bold text-white">
-                TG
+                <Logo dark className="h-7 w-7" />
               </div>
               <div>
                 <p className="text-white">{HOME_CONTENT.footer.madeBy}</p>

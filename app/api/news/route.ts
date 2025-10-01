@@ -228,16 +228,24 @@ export async function GET(req: NextRequest) {
     };
   }
 
-  const response = NextResponse.json(
-    {
-      message: `Retrieved ${allNews.length} commentary items across ${topics.length} topic feeds`,
-      count: allNews.length,
-      topics,
-      news: allNews,
-      ...(persistenceInfo ?? {}),
-    },
-    { status: 200 }
-  );
+  // If this request is persisting the job (cron), avoid returning the
+  // full `topics` and `news` payload to keep the response small. For
+  // manual/debug calls (persist=false) return the full data.
+  const basePayload: Record<string, unknown> = {
+    message: `Retrieved ${allNews.length} commentary items across ${topics.length} topic feeds`,
+    count: allNews.length,
+    ...(persistenceInfo ?? {}),
+  };
+
+  const fullPayload = {
+    ...basePayload,
+    topics,
+    news: allNews,
+  };
+
+  const response = NextResponse.json(persist ? basePayload : fullPayload, {
+    status: 200,
+  });
 
   response.headers.set("Cache-Control", CACHE_HEADERS["Cache-Control"]);
   response.headers.set("Pragma", CACHE_HEADERS.Pragma);

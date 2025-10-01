@@ -9,6 +9,10 @@ import {
 
 const MAX_INPUT_ARTICLES = GEMINI_CONFIG.maxInputArticles;
 const DEFAULT_MODEL = process.env.GEMINI_MODEL ?? GEMINI_CONFIG.defaultModel;
+// Maximum time to wait for Gemini to respond (ms). Can be overridden by env var.
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS ?? 12000);
+// Number of parallel Gemini calls to race
+const PARALLEL_CALL_COUNT = Number(process.env.GEMINI_PARALLEL_CALLS ?? 3);
 
 const normalizeSectionToken = (
   token: string
@@ -69,7 +73,7 @@ type GeminiArticleRecord = {
 };
 
 const serializeArticlesForGemini = (records: GeminiArticleRecord[]): string => {
-  const header = "id|slug|date|topic|publisher|title|summary|hints";
+  const header = "id|slug|topic|publisher|title|summary|hints";
 
   const rows = records.map(({ id, article }) => {
     const hints = article.sectionHints?.join("+") ?? "";
@@ -77,11 +81,10 @@ const serializeArticlesForGemini = (records: GeminiArticleRecord[]): string => {
     return [
       id,
       article.slug,
-      article.pubDate.toISOString(),
       article.topic ?? "",
       article.publisher ?? "",
       article.title,
-      truncate(stripHtml(article.description), 200),
+      truncate(stripHtml(article.description), 150),
       hints,
     ]
       .map((cell) => condense(cell))
@@ -126,6 +129,9 @@ const buildArticleFallbackSummary = (article: ProcessedNewsItem): string => {
   );
 };
 
+// Cache for article section items to avoid recreating identical items
+const articleCache = new Map<string, NewsletterSectionItem>();
+
 const formatModelSummary = (
   summary: string | undefined,
   article: ProcessedNewsItem
@@ -144,22 +150,41 @@ const formatModelSummary = (
 const createSectionItemFromArticle = (
   article: ProcessedNewsItem,
   summary: string | undefined
-): NewsletterSectionItem => ({
-  title: article.title,
-  summary: formatModelSummary(summary, article),
-  link: article.link,
-  publisher: article.publisher,
-  topic: article.topic,
-  slug: article.slug,
-  source: article.source,
-  pubDate: article.pubDate.toISOString(),
-  sectionHints: article.sectionHints,
-});
+): NewsletterSectionItem => {
+  const cacheKey = `${article.slug}-${summary ?? ""}`;
+
+  if (articleCache.has(cacheKey)) {
+    return articleCache.get(cacheKey)!;
+  }
+
+  const item: NewsletterSectionItem = {
+    title: article.title,
+    summary: formatModelSummary(summary, article),
+    link: article.link,
+    publisher: article.publisher,
+    topic: article.topic,
+    slug: article.slug,
+    source: article.source,
+    pubDate: article.pubDate.toISOString(),
+    sectionHints: article.sectionHints,
+  };
+
+  articleCache.set(cacheKey, item);
+  return item;
+};
 
 const parseGeminiPipePlan = (
   responseText: string,
   records: GeminiArticleRecord[]
 ): GeminiNewsletterPlan | null => {
+  // Early exit if response is clearly incomplete
+  if (
+    !responseText.includes("wildCard|") ||
+    !responseText.includes("highlight|")
+  ) {
+    return null;
+  }
+
   const articleById = new Map(
     records.map(({ id, article }) => [id.toLowerCase(), article])
   );
@@ -324,15 +349,13 @@ const RESPONSE_TEMPLATE = [
 
 const buildPlanPrompt = (dataset: string): string =>
   [
-    "You are planning a current-affairs newsletter from dataset lines (id|slug|date|topic|publisher|title|summary|hints).",
-    "Always refer to articles by their id (first column).",
-    "Generate 1-2 sentence summaries that are vivid, accurate, and grounded in the supplied facts. Refresh descriptions even when text exists, but do not invent details.",
-    "Do not rely solely on the hints column; infer sections from publisher, geography, and headline context.",
-    "Strictly output one decision per line using the pipe format shown below. Avoid markdown fences, bullet lists, or extra commentary.",
-    "Provide exactly 4 highlight lines, 5-7 commentaries, 2-3 international, 2-3 politics, 2-3 businessAndTech, and exactly 1 wildCard. Never repeat an article id across sections except that highlights may feature items already assigned to a section.",
-    "Format example (replace placeholders with real ids and text):",
+    "Plan newsletter from: id|slug|topic|publisher|title|summary|hints",
+    "Rules: 4 highlights, 5-7 commentaries, 2-3 international/politics/businessAndTech, 1 wildCard",
+    "Format: section|id|1-2 sentence summary",
+    "Also add: overview|text and summary|text",
+    "Example:",
     RESPONSE_TEMPLATE,
-    "Dataset:",
+    "\nDataset:",
     dataset,
   ].join("\n");
 
@@ -500,10 +523,123 @@ const buildFallbackPlan = (
   };
 };
 
+const buildPreviewPlan = (
+  articles: ProcessedNewsItem[],
+  fallbackReason: string
+): PlanResult => {
+  const sortedArticles = [...articles].sort(
+    (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
+  );
+  const pool = sortedArticles.map((article) =>
+    createSectionItemFromArticle(article, undefined)
+  );
+
+  // For preview mode, show all articles in highlights
+  const highlights = pool.slice(0, 20);
+
+  const overview = `Preview of ${highlights.length} articles from the mock data.`;
+
+  const summary = `All articles displayed in highlights for preview purposes. In production, articles are organized into themed sections.`;
+
+  const plan: GeminiNewsletterPlan = {
+    essentialReads: {
+      overview,
+      highlights,
+    },
+    commentaries: [],
+    international: [],
+    politics: [],
+    businessAndTech: [],
+    wildCard: [],
+    summary,
+  };
+
+  return {
+    plan,
+    metadata: {
+      model: "heuristic",
+      usedFallback: true,
+      fallbackReason,
+    },
+  };
+};
+
 export const generateNewsletterPlanFallback = (
   articles: ProcessedNewsItem[],
   fallbackReason = "Fallback planner invoked"
 ): PlanResult => buildFallbackPlan(articles, fallbackReason);
+
+export const generateNewsletterPlanPreview = (
+  articles: ProcessedNewsItem[],
+  fallbackReason = "Preview mode without Gemini"
+): PlanResult => buildPreviewPlan(articles, fallbackReason);
+
+// Helper to make parallel racing Gemini calls - returns first valid response
+const makeFastGeminiCall = async (
+  model: any,
+  prompt: string,
+  articleRecords: GeminiArticleRecord[],
+  timeoutMs: number
+): Promise<{ rawText: string; parsed: GeminiNewsletterPlan }> => {
+  const calls = Array.from({ length: PARALLEL_CALL_COUNT }, (_, i) =>
+    model
+      .generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      })
+      .then((result: any) => ({ result, index: i }))
+  );
+
+  // Race all calls and return first successful parsed response
+  return Promise.race(
+    calls.map((p) =>
+      p.then(async ({ result }: { result: any }) => {
+        const rawText = result.response.text();
+        const parsed = parseGeminiPipePlan(rawText, articleRecords);
+        if (!parsed) throw new Error("Invalid plan");
+        return { rawText, parsed };
+      })
+    )
+  );
+};
+
+// Helper to make streaming Gemini call with early parsing
+const makeStreamingGeminiCall = async (
+  model: any,
+  prompt: string,
+  articleRecords: GeminiArticleRecord[]
+): Promise<{ rawText: string; parsed: GeminiNewsletterPlan }> => {
+  const result = await model.generateContentStream({
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+  });
+
+  let rawText = "";
+  let attemptedParse = false;
+
+  for await (const chunk of result.stream) {
+    rawText += chunk.text();
+
+    // Try parsing once we have sufficient markers indicating completeness
+    if (
+      !attemptedParse &&
+      rawText.includes("wildCard|") &&
+      rawText.includes("highlight|") &&
+      rawText.includes("commentaries|")
+    ) {
+      attemptedParse = true;
+      const parsed = parseGeminiPipePlan(rawText, articleRecords);
+      if (parsed) {
+        return { rawText, parsed };
+      }
+    }
+  }
+
+  // Final parse attempt after stream completes
+  const parsed = parseGeminiPipePlan(rawText, articleRecords);
+  if (!parsed) {
+    throw new Error("Invalid plan after streaming completed");
+  }
+  return { rawText, parsed };
+};
 
 export const generateNewsletterPlan = async (
   articles: ProcessedNewsItem[]
@@ -547,25 +683,61 @@ export const generateNewsletterPlan = async (
   const prompt = buildPlanPrompt(serializedDataset);
 
   try {
-    const result = await model.generateContent({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
-    });
+    // Helper to apply a timeout to any promise
+    const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          reject(new Error("Gemini request timed out"));
+        }, ms);
 
-    if (!result.response) {
-      throw new Error("No response from Gemini API");
+        p.then((v) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(v);
+        }).catch((err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+
+    let rawText = "";
+    let parsedPlan: GeminiNewsletterPlan | null = null;
+
+    try {
+      // Try parallel racing calls first (fastest approach)
+      const parallelResult = await withTimeout(
+        makeFastGeminiCall(model, prompt, articleRecords, GEMINI_TIMEOUT_MS),
+        GEMINI_TIMEOUT_MS
+      );
+      rawText = parallelResult.rawText;
+      parsedPlan = parallelResult.parsed;
+      console.log("✓ Parallel racing succeeded");
+    } catch (parallelError) {
+      console.log(
+        "Parallel racing failed, trying streaming:",
+        parallelError instanceof Error ? parallelError.message : parallelError
+      );
+
+      // Fallback to streaming approach
+      try {
+        const streamingResult = await withTimeout(
+          makeStreamingGeminiCall(model, prompt, articleRecords),
+          GEMINI_TIMEOUT_MS
+        );
+        rawText = streamingResult.rawText;
+        parsedPlan = streamingResult.parsed;
+        console.log("✓ Streaming approach succeeded");
+      } catch (streamingError) {
+        throw streamingError;
+      }
     }
 
-    const rawText = result.response.text();
-    console.log("Gemini raw response:", rawText);
     console.log("Gemini raw response length:", rawText.length);
     console.log(
       "Gemini raw response (first 200 chars):",
@@ -575,8 +747,6 @@ export const generateNewsletterPlan = async (
     if (!rawText || rawText.trim().length === 0) {
       throw new Error("Empty response from Gemini");
     }
-
-    const parsedPlan = parseGeminiPipePlan(rawText, articleRecords);
 
     if (!parsedPlan) {
       return buildFallbackPlan(

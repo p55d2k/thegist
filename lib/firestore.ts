@@ -29,6 +29,7 @@ export interface EmailSendStatus {
   status:
     | "pending"
     | "news-ready"
+    | "preprocessed"
     | "ready-to-send"
     | "sending"
     | "success"
@@ -111,6 +112,13 @@ export type SerializedTopicNewsGroup = {
 
 export interface NewsletterJob extends EmailSendStatus {
   topics?: SerializedTopicNewsGroup[];
+  preprocessedTopics?: SerializedTopicNewsGroup[];
+  preprocessStats?: {
+    originalCount: number;
+    representativeCount: number;
+    reductionPercent: number;
+    processingTimeMs: number;
+  };
   pendingRecipients?: string[];
   formattedHtml?: string;
   formattedText?: string;
@@ -264,7 +272,7 @@ export async function getNewsletterJob(
   }
 }
 
-export async function getNextNewsletterJobNeedingGemini(): Promise<{
+export async function getNextNewsletterJobNeedingPreprocessing(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
@@ -272,11 +280,24 @@ export async function getNextNewsletterJobNeedingGemini(): Promise<{
   return result ?? null;
 }
 
+export async function getNextNewsletterJobNeedingGemini(): Promise<{
+  id: string;
+  job: NewsletterJob;
+} | null> {
+  const [result] = await queryNewsletterJobs(["preprocessed"]);
+  return result ?? null;
+}
+
 export async function getNextNewsletterJobForSending(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
-  const results = await queryNewsletterJobs(["ready-to-send", "sending"]);
+  // Only return jobs that are ready to send. Previously this included
+  // "sending" which could cause multiple cron workers to pick the same job
+  // and produce overlapping work. A proper lease/claim mechanism would be
+  // more robust, but restricting to "ready-to-send" reduces the risk of
+  // concurrent workers processing the same job.
+  const results = await queryNewsletterJobs(["ready-to-send"]);
   return results[0] ?? null;
 }
 
@@ -294,6 +315,34 @@ export async function markNewsletterJobAsSending(id: string): Promise<void> {
   } catch (error) {
     console.error("Error marking job as sending:", error);
     throw new Error("Failed to mark job as sending");
+  }
+}
+
+export async function savePreprocessedData(
+  id: string,
+  payload: {
+    preprocessedTopics: SerializedTopicNewsGroup[];
+    preprocessStats: NewsletterJob["preprocessStats"];
+  }
+): Promise<void> {
+  try {
+    const ref = doc(db, SEND_COLLECTION, id);
+    const snapshot = await getDoc(ref);
+
+    if (!snapshot.exists()) {
+      throw new Error(`Newsletter job ${id} not found`);
+    }
+
+    const cleanedPayload = {
+      preprocessedTopics: removeUndefinedFields(payload.preprocessedTopics),
+      preprocessStats: payload.preprocessStats,
+      status: "preprocessed",
+    };
+
+    await setDoc(ref, cleanedPayload, { merge: true });
+  } catch (error) {
+    console.error("Error saving preprocessed data:", error);
+    throw new Error("Failed to save preprocessed data");
   }
 }
 
