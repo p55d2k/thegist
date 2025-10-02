@@ -4,11 +4,11 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 
 ## Features
 
-- **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business & tech, and a wildcard piece).
+- **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business, tech, sport, culture, and a wildcard piece).
 - **Multi-Publisher Aggregation**: Pulls commentary feeds from ChannelNewsAsia, CNN, The Guardian, BBC, NPR, and Al Jazeera.
 - **Smart Filtering**: Keeps only commentary articles (based on per-feed rules) from the last 24 hours and drops duplicates across sources.
 - **Article Preprocessing**: Deduplicates and clusters similar articles to reduce redundancy while preserving coverage, enabling scaling to 100+ sources with 40-60% reduction in processing time and costs.
-- **Section-Based Organization**: Articles are categorized into Commentaries (5-7 pieces), International (2-3), Politics (2-3), Business & Tech (2-3), and one Wildcard.
+- **Section-Based Organization**: Articles are categorized into Commentaries (5-7 pieces), International (2-3), Politics (2-3), Business (2-3), Tech (2-3), Sport (2-3), Culture (2-3), and one Wildcard.
 - **Email Delivery**: Sends a responsive HTML newsletter with optional imagery plus a plaintext fallback.
 - **Email Preview**: Preview the newsletter HTML and plaintext content before sending via a dedicated page.
 - **Background Processing**: Newsletter generation and sending happens asynchronously to avoid timeouts.
@@ -147,7 +147,7 @@ Fetches and aggregates commentary articles from all configured RSS feeds. Requir
       "topic": "Latest",
       "slug": "cna-latest",
       "publisher": "ChannelNewsAsia",
-      "sectionHints": ["international", "politics", "business-tech"],
+      "sectionHints": ["international", "politics", "business", "tech"],
       "items": [
         {
           "title": "Article Title",
