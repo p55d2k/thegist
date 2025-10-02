@@ -2,8 +2,8 @@
 export const EMAIL_CONFIG = {
   smtp: {
     host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    port: 587,
+    secure: false,
   },
   from: (userEmail: string) => `"The Gist" <${userEmail}>`,
   defaultSubject: (dateString: string) => `The Gist | ${dateString}`,

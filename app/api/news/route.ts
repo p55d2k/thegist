@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
             Record<string, unknown>)[];
 
           const seenLinks = new Set<string>();
-          const processed: ProcessedNewsItem[] = [];
+          let processed: ProcessedNewsItem[] = [];
 
           for (const item of items) {
             const link = extractText(item.link);
@@ -123,6 +123,9 @@ export async function GET(req: NextRequest) {
           }
 
           processed.sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
+
+          // Limit to most recent articles per feed to reduce processing load
+          processed = processed.slice(0, DEFAULT_LIMITS.rssArticlesPerFeed);
 
           if (processed.length === 0) {
             return null;
@@ -232,7 +235,7 @@ export async function GET(req: NextRequest) {
   // full `topics` and `news` payload to keep the response small. For
   // manual/debug calls (persist=false) return the full data.
   const basePayload: Record<string, unknown> = {
-    message: `Retrieved ${allNews.length} commentary items across ${topics.length} topic feeds`,
+    message: `Retrieved ${allNews.length} items across ${topics.length} topic feeds`,
     count: allNews.length,
     ...(persistenceInfo ?? {}),
   };

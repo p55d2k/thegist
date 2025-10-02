@@ -177,11 +177,24 @@ const parseGeminiPipePlan = (
   responseText: string,
   records: GeminiArticleRecord[]
 ): GeminiNewsletterPlan | null => {
+  console.log("[gemini/parse] Raw response length:", responseText.length);
+  console.log(
+    "[gemini/parse] Raw response (first 500 chars):",
+    responseText.substring(0, 500)
+  );
+  console.log(
+    "[gemini/parse] Raw response (last 300 chars):",
+    responseText.substring(Math.max(0, responseText.length - 300))
+  );
+
   // Early exit if response is clearly incomplete
   if (
     !responseText.includes("wildCard|") ||
     !responseText.includes("highlight|")
   ) {
+    console.warn(
+      "[gemini/parse] Response missing required markers (wildCard or highlight)"
+    );
     return null;
   }
 
@@ -200,7 +213,10 @@ const parseGeminiPipePlan = (
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
+  console.log("[gemini/parse] Cleaned response has", lines.length, "lines");
+
   if (lines.length === 0) {
+    console.warn("[gemini/parse] No lines found after cleaning");
     return null;
   }
 
@@ -217,6 +233,9 @@ const parseGeminiPipePlan = (
     sport: [],
     culture: [],
     wildCard: [],
+    entertainment: [],
+    science: [],
+    lifestyle: [],
   };
 
   const usedSectionIds = new Set<string>();
@@ -300,17 +319,34 @@ const parseGeminiPipePlan = (
     usedIds.add(idToken);
   }
 
+  // Validation: Require good coverage across major sections
   const hasCoverage =
     sectionItems.commentaries.length >= 5 &&
     sectionItems.commentaries.length <= SECTION_LIMITS.commentaries &&
     sectionItems.international.length >= 2 &&
-    sectionItems.politics.length >= 2 &&
+    sectionItems.politics.length >= 1 &&
     sectionItems.business.length >= 2 &&
-    sectionItems.tech.length >= 2 &&
-    sectionItems.wildCard.length === 1 &&
+    sectionItems.tech.length >= 1 &&
+    sectionItems.wildCard.length >= 1 &&
     highlightItems.length >= 4;
 
-  if (!hasCoverage) {
+  const totalArticles =
+    sectionItems.commentaries.length +
+    sectionItems.international.length +
+    sectionItems.politics.length +
+    sectionItems.business.length +
+    sectionItems.tech.length +
+    sectionItems.sport.length +
+    sectionItems.culture.length +
+    sectionItems.entertainment.length +
+    sectionItems.science.length +
+    sectionItems.lifestyle.length +
+    sectionItems.wildCard.length;
+
+  // Also require minimum total article count for a rich newsletter
+  const hasMinimumTotal = totalArticles >= 16;
+
+  if (!hasCoverage || !hasMinimumTotal) {
     console.warn("Gemini plan coverage insufficient", {
       counts: {
         commentaries: sectionItems.commentaries.length,
@@ -320,13 +356,47 @@ const parseGeminiPipePlan = (
         tech: sectionItems.tech.length,
         sport: sectionItems.sport.length,
         culture: sectionItems.culture.length,
+        entertainment: sectionItems.entertainment.length,
+        science: sectionItems.science.length,
+        lifestyle: sectionItems.lifestyle.length,
         wildCard: sectionItems.wildCard.length,
         highlights: highlightItems.length,
+        total: totalArticles,
       },
       unknownIds: Array.from(unknownIds),
+      validation: {
+        commentariesOk:
+          sectionItems.commentaries.length >= 5 &&
+          sectionItems.commentaries.length <= SECTION_LIMITS.commentaries,
+        internationalOk: sectionItems.international.length >= 2,
+        politicsOk: sectionItems.politics.length >= 1,
+        businessOk: sectionItems.business.length >= 2,
+        techOk: sectionItems.tech.length >= 1,
+        wildCardOk: sectionItems.wildCard.length >= 1,
+        highlightsOk: highlightItems.length >= 4,
+        totalOk: hasMinimumTotal,
+      },
     });
     return null;
   }
+
+  console.log("✓ Gemini plan parsed successfully", {
+    counts: {
+      commentaries: sectionItems.commentaries.length,
+      international: sectionItems.international.length,
+      politics: sectionItems.politics.length,
+      business: sectionItems.business.length,
+      tech: sectionItems.tech.length,
+      sport: sectionItems.sport.length,
+      culture: sectionItems.culture.length,
+      entertainment: sectionItems.entertainment.length,
+      science: sectionItems.science.length,
+      lifestyle: sectionItems.lifestyle.length,
+      wildCard: sectionItems.wildCard.length,
+      highlights: highlightItems.length,
+      total: totalArticles,
+    },
+  });
 
   return {
     essentialReads: {
@@ -343,6 +413,9 @@ const parseGeminiPipePlan = (
     sport: sectionItems.sport,
     culture: sectionItems.culture,
     wildCard: sectionItems.wildCard.slice(0, SECTION_LIMITS.wildCard),
+    entertainment: sectionItems.entertainment,
+    science: sectionItems.science,
+    lifestyle: sectionItems.lifestyle,
     summary:
       summaryText ??
       "A concise mix of commentary, geopolitics, policy, markets, tech, and one wildcard piece to stretch your thinking.",
@@ -352,26 +425,71 @@ const parseGeminiPipePlan = (
 const RESPONSE_TEMPLATE = [
   "overview|Today's key themes in 1-2 sentences",
   "summary|What readers will get in 1-2 sentences",
-  "highlight|a001|1-2 vivid sentences (replace a001 with real article IDs)",
-  "commentaries|a001|1-2 vivid sentences",
-  "international|a002|1-2 vivid sentences",
-  "politics|a003|1-2 vivid sentences",
-  "business|a004|1-2 vivid sentences",
-  "tech|a005|1-2 vivid sentences",
-  "sport|a006|1-2 vivid sentences",
-  "culture|a007|1-2 vivid sentences",
-  "wildCard|a008|1-2 vivid sentences",
+  "highlight|a001|1-2 vivid sentences",
+  "highlight|a002|1-2 vivid sentences",
+  "highlight|a003|1-2 vivid sentences",
+  "highlight|a004|1-2 vivid sentences",
+  "commentaries|a005|1-2 vivid sentences",
+  "commentaries|a006|1-2 vivid sentences",
+  "commentaries|a007|1-2 vivid sentences",
+  "commentaries|a008|1-2 vivid sentences",
+  "commentaries|a009|1-2 vivid sentences",
+  "international|a010|1-2 vivid sentences",
+  "international|a011|1-2 vivid sentences",
+  "international|a012|1-2 vivid sentences",
+  "politics|a013|1-2 vivid sentences",
+  "politics|a014|1-2 vivid sentences",
+  "business|a015|1-2 vivid sentences",
+  "business|a016|1-2 vivid sentences",
+  "business|a017|1-2 vivid sentences",
+  "tech|a018|1-2 vivid sentences",
+  "tech|a019|1-2 vivid sentences",
+  "sport|a020|1-2 vivid sentences",
+  "culture|a021|1-2 vivid sentences",
+  "entertainment|a022|1-2 vivid sentences",
+  "science|a023|1-2 vivid sentences",
+  "lifestyle|a024|1-2 vivid sentences",
+  "wildCard|a025|1-2 vivid sentences explaining why this is wildcard-worthy",
 ].join("\n");
 
 const buildPlanPrompt = (dataset: string): string =>
   [
     "Plan newsletter from: id|slug|topic|publisher|title|summary|hints",
-    "Select: 4 highlights, 5-7 commentaries (2-3: intl/politics/business/tech, 1-2: sport/culture, 1 wildcard)",
-    "Constraints: max 3-4 articles/publisher at best, summaries must be specific not generic",
-    "Output: section|id|summary(1-2 sent), overview|text, summary|text",
-    "Example:",
+    "",
+    "TARGET SELECTION (aim for 20-25 total articles):",
+    "- 4 highlights (top/breaking stories)",
+    "- 5-7 commentaries (opinion/analysis pieces)",
+    "- 2-3 articles for: international, business",
+    "- 2 articles for: politics, tech",
+    "- 1-2 articles for: sport, culture, entertainment, science, lifestyle",
+    "- 1 wildcard (surprising/unique story)",
+    "",
+    "SELECTION CRITERIA:",
+    "- Prioritize diverse publishers (max 3-4 articles per publisher)",
+    "- Prefer recent, newsworthy, impactful stories",
+    "- Balance hard news with analysis and human interest",
+    "- Summaries must be specific and vivid, not generic",
+    "",
+    "OUTPUT FORMAT (use exact article IDs from dataset):",
+    "overview|Brief 1-2 sentence overview of today's key themes",
+    "summary|What readers will get from this newsletter in 1-2 sentences",
+    "highlight|<id>|1-2 vivid sentences",
+    "commentaries|<id>|1-2 vivid sentences",
+    "international|<id>|1-2 vivid sentences",
+    "politics|<id>|1-2 vivid sentences",
+    "business|<id>|1-2 vivid sentences",
+    "tech|<id>|1-2 vivid sentences",
+    "sport|<id>|1-2 vivid sentences",
+    "culture|<id>|1-2 vivid sentences",
+    "entertainment|<id>|1-2 vivid sentences",
+    "science|<id>|1-2 vivid sentences",
+    "lifestyle|<id>|1-2 vivid sentences",
+    "wildCard|<id>|1-2 vivid sentences explaining why this is wildcard-worthy",
+    "",
+    "Example output:",
     RESPONSE_TEMPLATE,
-    "\nDataset:",
+    "",
+    "Dataset:",
     dataset,
   ].join("\n");
 
@@ -466,6 +584,9 @@ const buildFallbackPlan = (
   const sport = fillSectionFromPool("sport", pool, usedLinks);
   const culture = fillSectionFromPool("culture", pool, usedLinks);
   const wildCard = fillSectionFromPool("wildCard", pool, usedLinks);
+  const entertainment = fillSectionFromPool("entertainment", pool, usedLinks);
+  const science = fillSectionFromPool("science", pool, usedLinks);
+  const lifestyle = fillSectionFromPool("lifestyle", pool, usedLinks);
 
   const overviewSegments: string[] = [];
   if (commentaries.length) {
@@ -544,6 +665,9 @@ const buildFallbackPlan = (
     sport,
     culture,
     wildCard,
+    entertainment,
+    science,
+    lifestyle,
     summary,
   };
 
@@ -588,6 +712,9 @@ const buildPreviewPlan = (
     sport: [],
     culture: [],
     wildCard: [],
+    entertainment: [],
+    science: [],
+    lifestyle: [],
     summary,
   };
 
@@ -713,6 +840,9 @@ const smartSamplePreClusteredArticles = (
     sport: 7,
     culture: 7,
     wildcard: 5,
+    entertainment: 10,
+    science: 7,
+    lifestyle: 7,
   };
 
   const sampled: ProcessedNewsItem[] = [];
@@ -843,10 +973,10 @@ export const generateNewsletterPlan = async (
       );
       rawText = parallelResult.rawText;
       parsedPlan = parallelResult.parsed;
-      console.log("✓ Parallel racing succeeded");
+      console.log("[gemini/call] ✓ Parallel racing succeeded");
     } catch (parallelError) {
       console.log(
-        "Parallel racing failed, trying streaming:",
+        "[gemini/call] Parallel racing failed, trying streaming:",
         parallelError instanceof Error ? parallelError.message : parallelError
       );
 
@@ -858,28 +988,38 @@ export const generateNewsletterPlan = async (
         );
         rawText = streamingResult.rawText;
         parsedPlan = streamingResult.parsed;
-        console.log("✓ Streaming approach succeeded");
+        console.log("[gemini/call] ✓ Streaming approach succeeded");
       } catch (streamingError) {
+        console.error(
+          "[gemini/call] Streaming also failed:",
+          streamingError instanceof Error
+            ? streamingError.message
+            : streamingError
+        );
         throw streamingError;
       }
     }
 
-    console.log("Gemini raw response length:", rawText.length);
-    console.log(
-      "Gemini raw response (first 200 chars):",
-      rawText.substring(0, 200)
-    );
+    console.log("[gemini/call] Full raw response:");
+    console.log("=".repeat(80));
+    console.log(rawText);
+    console.log("=".repeat(80));
 
     if (!rawText || rawText.trim().length === 0) {
       throw new Error("Empty response from Gemini");
     }
 
     if (!parsedPlan) {
+      console.error(
+        "[gemini/call] Parsing failed - response received but validation failed"
+      );
       return buildFallbackPlan(
         articles,
         "Gemini response missing required sections or failed validation"
       );
     }
+
+    console.log("[gemini/call] ✓ Successfully generated and parsed plan");
 
     return {
       plan: parsedPlan,

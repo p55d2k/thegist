@@ -55,6 +55,18 @@ const SECTION_COPY: Record<
     title: "Wildcard",
     subtitle: "The story you didn't see coming but can't stop thinking about.",
   },
+  entertainment: {
+    title: "Entertainment",
+    subtitle: "Celebrity buzz, blockbuster news, and pop culture moments.",
+  },
+  science: {
+    title: "Science",
+    subtitle: "Breakthrough discoveries and the wonders of our world.",
+  },
+  lifestyle: {
+    title: "Lifestyle",
+    subtitle: "Health tips, travel hacks, and the good life.",
+  },
 };
 
 const decodeHtmlEntities = (value: string): string => {
@@ -223,6 +235,9 @@ export const buildHtml = (formatted: FormattedArticles): string => {
       sport,
       culture,
       wildCard,
+      entertainment,
+      science,
+      lifestyle,
       summary,
     },
     totalArticles,
@@ -317,6 +332,9 @@ export const buildHtml = (formatted: FormattedArticles): string => {
           ${renderSection("tech", tech)}
           ${renderSection("sport", sport)}
           ${renderSection("culture", culture)}
+          ${renderSection("entertainment", entertainment)}
+          ${renderSection("science", science)}
+          ${renderSection("lifestyle", lifestyle)}
           ${renderWildCard(wildCard)}
           
           <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
@@ -344,6 +362,9 @@ export const buildText = (formatted: FormattedArticles): string => {
       sport,
       culture,
       wildCard,
+      entertainment,
+      science,
+      lifestyle,
       summary,
     },
     totalArticles,
@@ -421,6 +442,21 @@ export const buildText = (formatted: FormattedArticles): string => {
       SECTION_COPY.culture.title,
       culture,
       SECTION_COPY.culture.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.entertainment.title,
+      entertainment,
+      SECTION_COPY.entertainment.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.science.title,
+      science,
+      SECTION_COPY.science.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.lifestyle.title,
+      lifestyle,
+      SECTION_COPY.lifestyle.subtitle
     ),
     sectionToText(
       SECTION_COPY.wildCard.title,
@@ -505,6 +541,9 @@ const extractPreClusteredArticles = (
     ["sport", []],
     ["culture", []],
     ["wildcard", []],
+    ["entertainment", []],
+    ["science", []],
+    ["lifestyle", []],
   ]);
 
   let hasPreClustered = false;
@@ -522,6 +561,9 @@ const extractPreClusteredArticles = (
           "sport",
           "culture",
           "wildcard",
+          "entertainment",
+          "science",
+          "lifestyle",
         ].includes(hint)
       );
 

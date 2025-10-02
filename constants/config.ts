@@ -29,4 +29,5 @@ export const DEFAULT_LIMITS = {
   recentSends: 20,
   batchSize: 50,
   maxBatches: 1,
+  rssArticlesPerFeed: 10, // Limit articles fetched per RSS feed to reduce processing
 } as const;

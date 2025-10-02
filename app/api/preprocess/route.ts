@@ -240,6 +240,12 @@ export async function POST(request: NextRequest) {
       /\b(sport|football|basketball|soccer|tennis|cricket|athlete|championship|tournament|match|game|player|team)\b/i;
     const cultureRegex =
       /\b(culture|arts?|music|film|movie|entertainment|celebrity|book|literature|festival|exhibition)\b/i;
+    const entertainmentRegex =
+      /\b(entertainment|celebrity|hollywood|movie|film|tv|television|music|award|streaming|actor|actress|director)\b/i;
+    const scienceRegex =
+      /\b(science|scientist|research|discovery|study|experiment|innovation|breakthrough|physics|chemistry|biology)\b/i;
+    const lifestyleRegex =
+      /\b(lifestyle|health|wellness|fitness|travel|food|fashion|home|family|diet|exercise|beauty)\b/i;
 
     const determineTopicKeys = (article: ProcessedNewsItem): string[] => {
       const keys = new Set<string>();
@@ -257,6 +263,9 @@ export async function POST(request: NextRequest) {
       if (hints.includes("sport")) keys.add("sport");
       if (hints.includes("culture")) keys.add("culture");
       if (hints.includes("wildcard")) keys.add("wildcard");
+      if (hints.includes("entertainment")) keys.add("entertainment");
+      if (hints.includes("science")) keys.add("science");
+      if (hints.includes("lifestyle")) keys.add("lifestyle");
 
       // For articles without specific hints, try to classify using keywords
       if (
@@ -268,11 +277,17 @@ export async function POST(request: NextRequest) {
         const isBusiness = businessRegex.test(content);
         const isSport = sportRegex.test(content);
         const isCulture = cultureRegex.test(content);
+        const isEntertainment = entertainmentRegex.test(content);
+        const isScience = scienceRegex.test(content);
+        const isLifestyle = lifestyleRegex.test(content);
 
         if (isTech) keys.add("tech");
         if (isBusiness) keys.add("business");
         if (isSport) keys.add("sport");
         if (isCulture) keys.add("culture");
+        if (isEntertainment) keys.add("entertainment");
+        if (isScience) keys.add("science");
+        if (isLifestyle) keys.add("lifestyle");
       }
 
       // Always add normalized topic/slugs as fallback

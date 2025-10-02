@@ -55,7 +55,10 @@ type NewsletterSectionHint =
   | "tech"
   | "sport"
   | "culture"
-  | "wildcard";
+  | "wildcard"
+  | "entertainment"
+  | "science"
+  | "lifestyle";
 
 interface NewsletterSectionItem {
   title: string;
@@ -82,5 +85,8 @@ interface GeminiNewsletterPlan {
   sport: NewsletterSectionItem[];
   culture: NewsletterSectionItem[];
   wildCard: NewsletterSectionItem[];
+  entertainment: NewsletterSectionItem[];
+  science: NewsletterSectionItem[];
+  lifestyle: NewsletterSectionItem[];
   summary: string;
 }
