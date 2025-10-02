@@ -9,6 +9,13 @@ import {
 } from "@/lib/firestore";
 import { EMAIL_CONFIG } from "@/constants/email";
 import { DEFAULT_LIMITS } from "@/constants/config";
+import {
+  buildHtml,
+  buildText,
+  formatRawBody,
+  formatBody,
+  FormattedArticles,
+} from "@/lib/email";
 
 const AUTH_HEADER = "authorization";
 
@@ -114,7 +121,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!job.formattedHtml || !job.formattedRawText) {
+  let formattedHtml = job.formattedHtml;
+  let formattedRawText = job.formattedRawText;
+
+  if (!formattedHtml && job.plan) {
+    const formatted: FormattedArticles = {
+      plan: job.plan,
+      html: "",
+      text: "",
+      totalTopics: 0,
+      totalArticles: 0,
+      totalPublishers: 0,
+      aiMetadata: job.aiMetadata || { model: "unknown", usedFallback: false },
+    };
+    formatted.html = buildHtml(formatted);
+    formatted.text = buildText(formatted);
+    formattedHtml = formatBody(formatted, sendId);
+    formattedRawText = formatRawBody(formatted, sendId);
+  }
+
+  if (!formattedHtml || !formattedRawText) {
     return NextResponse.json(
       {
         error:
@@ -172,8 +198,8 @@ export async function POST(request: NextRequest) {
         subject:
           job.emailSubject ??
           EMAIL_CONFIG.defaultSubject(new Date().toDateString()),
-        text: job.formattedRawText,
-        html: job.formattedHtml,
+        text: formattedRawText,
+        html: formattedHtml,
       });
 
       const acceptedCount = Array.isArray(info.accepted)

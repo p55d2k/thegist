@@ -51,7 +51,10 @@ type NewsletterSectionHint =
   | "commentaries"
   | "international"
   | "politics"
-  | "business-tech"
+  | "business"
+  | "tech"
+  | "sport"
+  | "culture"
   | "wildcard";
 
 interface NewsletterSectionItem {
@@ -74,7 +77,10 @@ interface GeminiNewsletterPlan {
   commentaries: NewsletterSectionItem[];
   international: NewsletterSectionItem[];
   politics: NewsletterSectionItem[];
-  businessAndTech: NewsletterSectionItem[];
+  business: NewsletterSectionItem[];
+  tech: NewsletterSectionItem[];
+  sport: NewsletterSectionItem[];
+  culture: NewsletterSectionItem[];
   wildCard: NewsletterSectionItem[];
   summary: string;
 }

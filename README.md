@@ -22,7 +22,7 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 ## Tech Stack
 
 - **Framework**: Next.js 14 with TypeScript
-- **AI**: Google Gemini 1.5 Flash for newsletter planning and curation
+- **AI**: Google Gemini 2.5 Flash Lite for newsletter planning and curation
 - **Database**: Firebase/Firestore for subscriber management
 - **Styling**: Tailwind CSS with Framer Motion animations
 - **Email**: Nodemailer with Gmail SMTP
@@ -403,7 +403,7 @@ Responses include the latest job metadata so you can confirm when the queue reac
 - `GOOGLE_USER_EMAIL`: Gmail address for sending emails.
 - `GOOGLE_APP_PASSWORD`: Gmail app password.
 - `GEMINI_API_KEY`: Google Gemini API key for AI curation.
-- `GEMINI_MODEL`: Optional, defaults to "gemini-1.5-flash-8b".
+- `GEMINI_MODEL`: Optional, defaults to "gemini-2.5-flash-lite".
 - `FIREBASE_API_KEY`: Firebase API key for Firestore access.
 - `FIREBASE_AUTH_DOMAIN`: Firebase auth domain.
 - `FIREBASE_PROJECT_ID`: Firebase project ID.

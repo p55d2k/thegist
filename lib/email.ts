@@ -24,24 +24,36 @@ const SECTION_COPY: Record<
   { title: string; subtitle: string }
 > = {
   commentaries: {
-    title: "Deeper dives",
-    subtitle: "Takes that add context without the jargon (3-5 picks).",
+    title: "Hot takes",
+    subtitle: "Deeper dives that add context without the jargon (3-5 picks).",
   },
   international: {
     title: "Around the world",
-    subtitle: "Global shifts worth knowing before lunch.",
+    subtitle: "What's happening globally while you were scrolling.",
   },
   politics: {
     title: "Politics",
-    subtitle: "Power moves, policy swings, and who it impacts.",
+    subtitle: "Who's winning, who's losing, and why you should care.",
   },
-  businessAndTech: {
-    title: "Business & tech",
-    subtitle: "Money, markets, and product updates that hit your feed.",
+  business: {
+    title: "Business",
+    subtitle: "Money moves, market chaos, and what it means for your wallet.",
+  },
+  tech: {
+    title: "Tech",
+    subtitle: "New drops, big fails, and the internet's latest obsession.",
+  },
+  sport: {
+    title: "Sport",
+    subtitle: "The highlights, upsets, and moments everyone's replaying.",
+  },
+  culture: {
+    title: "Culture",
+    subtitle: "What's trending, who's talking, and why it slaps.",
   },
   wildCard: {
     title: "Wildcard",
-    subtitle: "One curveball story you'll want to bring up later.",
+    subtitle: "The story you didn't see coming but can't stop thinking about.",
   },
 };
 
@@ -199,14 +211,17 @@ const renderWildCard = (items: NewsletterSectionItem[]): string => {
   </section>`;
 };
 
-const buildHtml = (formatted: FormattedArticles): string => {
+export const buildHtml = (formatted: FormattedArticles): string => {
   const {
     plan: {
       essentialReads,
       commentaries,
       international,
       politics,
-      businessAndTech,
+      business,
+      tech,
+      sport,
+      culture,
       wildCard,
       summary,
     },
@@ -298,7 +313,10 @@ const buildHtml = (formatted: FormattedArticles): string => {
           ${renderSection("commentaries", commentaries)}
           ${renderSection("international", international)}
           ${renderSection("politics", politics)}
-          ${renderSection("businessAndTech", businessAndTech)}
+          ${renderSection("business", business)}
+          ${renderSection("tech", tech)}
+          ${renderSection("sport", sport)}
+          ${renderSection("culture", culture)}
           ${renderWildCard(wildCard)}
           
           <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
@@ -314,14 +332,17 @@ const buildHtml = (formatted: FormattedArticles): string => {
   </html>`;
 };
 
-const buildText = (formatted: FormattedArticles): string => {
+export const buildText = (formatted: FormattedArticles): string => {
   const {
     plan: {
       essentialReads,
       commentaries,
       international,
       politics,
-      businessAndTech,
+      business,
+      tech,
+      sport,
+      culture,
       wildCard,
       summary,
     },
@@ -390,9 +411,16 @@ const buildText = (formatted: FormattedArticles): string => {
       SECTION_COPY.politics.subtitle
     ),
     sectionToText(
-      SECTION_COPY.businessAndTech.title,
-      businessAndTech,
-      SECTION_COPY.businessAndTech.subtitle
+      SECTION_COPY.business.title,
+      business,
+      SECTION_COPY.business.subtitle
+    ),
+    sectionToText(SECTION_COPY.tech.title, tech, SECTION_COPY.tech.subtitle),
+    sectionToText(SECTION_COPY.sport.title, sport, SECTION_COPY.sport.subtitle),
+    sectionToText(
+      SECTION_COPY.culture.title,
+      culture,
+      SECTION_COPY.culture.subtitle
     ),
     sectionToText(
       SECTION_COPY.wildCard.title,
@@ -458,11 +486,62 @@ const finalizeFormattedArticles = (
   return formatted;
 };
 
+/**
+ * Extract pre-clustered articles from topics metadata.
+ * If the preprocessing step ran, articles will have section hints that indicate
+ * they were already pre-clustered by obvious categories.
+ */
+const extractPreClusteredArticles = (
+  topics: TopicNewsGroup[]
+): Map<string, ProcessedNewsItem[]> | undefined => {
+  // Check if topics have metadata indicating preprocessing
+  // For now, we'll extract pre-clustering by looking at article hints
+  const preClustered = new Map<string, ProcessedNewsItem[]>([
+    ["commentaries", []],
+    ["international", []],
+    ["politics", []],
+    ["business", []],
+    ["tech", []],
+    ["sport", []],
+    ["culture", []],
+    ["wildcard", []],
+  ]);
+
+  let hasPreClustered = false;
+
+  for (const group of topics) {
+    for (const item of group.items) {
+      const hints = item.sectionHints || [];
+      const validHints = hints.filter((hint) =>
+        [
+          "commentaries",
+          "international",
+          "politics",
+          "business",
+          "tech",
+          "sport",
+          "culture",
+          "wildcard",
+        ].includes(hint)
+      );
+
+      // If article has exactly one valid hint, consider it pre-clustered
+      if (validHints.length === 1) {
+        preClustered.get(validHints[0])!.push(item);
+        hasPreClustered = true;
+      }
+    }
+  }
+
+  return hasPreClustered ? preClustered : undefined;
+};
+
 export const formatArticles = async (
   topics: TopicNewsGroup[]
 ): Promise<FormattedArticles> => {
   const uniqueArticles = collectUniqueArticles(topics);
-  const planResult = await generateNewsletterPlan(uniqueArticles);
+  const preClustered = extractPreClusteredArticles(topics);
+  const planResult = await generateNewsletterPlan(uniqueArticles, preClustered);
 
   return finalizeFormattedArticles(topics, uniqueArticles, planResult);
 };

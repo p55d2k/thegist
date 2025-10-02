@@ -10,6 +10,7 @@ import {
   getNextNewsletterJobNeedingPreprocessing,
   savePreprocessedData,
   type SerializedTopicNewsGroup,
+  type SerializedProcessedNewsItem,
 } from "@/lib/firestore";
 
 export const runtime = "nodejs";
@@ -173,16 +174,20 @@ export async function POST(request: NextRequest) {
     );
 
     // Run preprocessing pipeline with GRAPH-BASED + TOPIC-AWARE clustering
-    const { representatives, stats } = preprocessArticles(allArticles, {
-      similarityThreshold: options.similarityThreshold || 0.15, // LOWERED from 0.2 for even more aggressive clustering
-      maxClusterSize: options.maxClusterSize || 20, // Max cluster size: 20
-      preferredPublishers,
-      useGraphClustering:
-        options.useGraphClustering !== undefined
-          ? options.useGraphClustering
-          : true, // DEFAULT: graph-based
-      topicAware: options.topicAware !== undefined ? options.topicAware : true, // DEFAULT: topic-aware
-    });
+    const { representatives, stats, preClustered } = preprocessArticles(
+      allArticles,
+      {
+        similarityThreshold: options.similarityThreshold || 0.15, // LOWERED from 0.2 for even more aggressive clustering
+        maxClusterSize: options.maxClusterSize || 20, // Max cluster size: 20
+        preferredPublishers,
+        useGraphClustering:
+          options.useGraphClustering !== undefined
+            ? options.useGraphClustering
+            : true, // DEFAULT: graph-based
+        topicAware:
+          options.topicAware !== undefined ? options.topicAware : true, // DEFAULT: topic-aware
+      }
+    );
 
     // Cache results
     articleCache.set(cacheKey, representatives, 30 * 60 * 1000); // 30 min TTL
@@ -222,9 +227,140 @@ export async function POST(request: NextRequest) {
 
     const preprocessedTopics = Array.from(topicGroups.values());
 
-    // Save to Firestore
+    // Build preprocessedByTopic: group representatives by finer-grained topic keys.
+    // Articles may belong to multiple keys (e.g., both 'business' and 'tech').
+    const preprocessedByTopic: Record<string, SerializedProcessedNewsItem[]> =
+      {};
+
+    const techRegex =
+      /\b(tech|technology|software|ai|artificial intelligence|machine learning|ml|startup|app|device|chip|semiconductor|saas|cloud|cyber|crypto|blockchain|platform|gadgets?)\b/i;
+    const businessRegex =
+      /\b(business|market|markets|economy|stock|stocks|shares|revenue|earnings|ipo|merger|acquisition|inflation|interest rate|fed|central bank|investor|investment|financial)\b/i;
+    const sportRegex =
+      /\b(sport|football|basketball|soccer|tennis|cricket|athlete|championship|tournament|match|game|player|team)\b/i;
+    const cultureRegex =
+      /\b(culture|arts?|music|film|movie|entertainment|celebrity|book|literature|festival|exhibition)\b/i;
+
+    const determineTopicKeys = (article: ProcessedNewsItem): string[] => {
+      const keys = new Set<string>();
+      const hints = article.sectionHints || [];
+      const content = `${article.title} ${
+        article.description || ""
+      }`.toLowerCase();
+
+      // Map explicit hints directly
+      if (hints.includes("commentaries")) keys.add("commentaries");
+      if (hints.includes("international")) keys.add("international");
+      if (hints.includes("politics")) keys.add("politics");
+      if (hints.includes("business")) keys.add("business");
+      if (hints.includes("tech")) keys.add("tech");
+      if (hints.includes("sport")) keys.add("sport");
+      if (hints.includes("culture")) keys.add("culture");
+      if (hints.includes("wildcard")) keys.add("wildcard");
+
+      // For articles without specific hints, try to classify using keywords
+      if (
+        keys.size === 0 ||
+        hints.includes("business") ||
+        hints.includes("tech")
+      ) {
+        const isTech = techRegex.test(content);
+        const isBusiness = businessRegex.test(content);
+        const isSport = sportRegex.test(content);
+        const isCulture = cultureRegex.test(content);
+
+        if (isTech) keys.add("tech");
+        if (isBusiness) keys.add("business");
+        if (isSport) keys.add("sport");
+        if (isCulture) keys.add("culture");
+      }
+
+      // Always add normalized topic/slugs as fallback
+      const fallback = (
+        article.topic ||
+        article.slug ||
+        article.publisher ||
+        "misc"
+      )
+        .toLowerCase()
+        .replace(/\s+/g, "-");
+      keys.add(fallback);
+
+      return Array.from(keys);
+    };
+
+    for (const article of representatives) {
+      const keys = determineTopicKeys(article);
+      for (const k of keys) {
+        if (!preprocessedByTopic[k]) preprocessedByTopic[k] = [];
+        preprocessedByTopic[k].push({
+          title: article.title,
+          description: article.description,
+          link: article.link,
+          pubDate: article.pubDate.toISOString(),
+          source: article.source,
+          publisher: article.publisher,
+          topic: article.topic,
+          slug: article.slug,
+          imageUrl: article.imageUrl,
+          sectionHints: article.sectionHints,
+        });
+      }
+    }
+
+    // Also serialize preClustered Map into a section-keyed object so Gemini
+    // can later request per-section planning. Keep original preprocessedTopics
+    // for backward compatibility.
+    const preprocessedBySection: Record<string, SerializedProcessedNewsItem[]> =
+      {};
+    if (preClustered) {
+      preClustered.forEach((items, hint) => {
+        preprocessedBySection[hint] = items.map((article) => ({
+          title: article.title,
+          description: article.description,
+          link: article.link,
+          pubDate: article.pubDate.toISOString(),
+          source: article.source,
+          publisher: article.publisher,
+          topic: article.topic,
+          slug: article.slug,
+          imageUrl: article.imageUrl,
+          sectionHints: article.sectionHints,
+        }));
+      });
+    }
+
+    // Save to Firestore (includes optional preprocessedBySection)
+    if (Object.keys(preprocessedBySection).length) {
+      console.log(
+        `[preprocess] Saving preprocessedBySection with sections: ${Object.keys(
+          preprocessedBySection
+        ).join(", ")}`
+      );
+      Object.entries(preprocessedBySection).forEach(([k, v]) =>
+        console.log(`[preprocess]   ${k}: ${v.length} articles`)
+      );
+    }
+
+    if (Object.keys(preprocessedByTopic).length) {
+      console.log(
+        `[preprocess] Saving preprocessedByTopic with keys: ${Object.keys(
+          preprocessedByTopic
+        ).join(", ")}`
+      );
+      Object.entries(preprocessedByTopic).forEach(([k, v]) =>
+        console.log(`[preprocess]   ${k}: ${v.length} articles`)
+      );
+    }
+
     await savePreprocessedData(sendId, {
       preprocessedTopics,
+      preprocessedBySection: Object.keys(preprocessedBySection).length
+        ? preprocessedBySection
+        : undefined,
+      preprocessedByTopic: Object.keys(preprocessedByTopic).length
+        ? preprocessedByTopic
+        : undefined,
       preprocessStats: {
         originalCount: stats.originalCount,
         representativeCount: stats.representativeCount,

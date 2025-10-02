@@ -89,7 +89,7 @@ const removeUndefinedFields = (input: unknown): unknown => {
   return input;
 };
 
-type SerializedProcessedNewsItem = {
+export type SerializedProcessedNewsItem = {
   title: string;
   description: string;
   link: string;
@@ -113,6 +113,11 @@ export type SerializedTopicNewsGroup = {
 export interface NewsletterJob extends EmailSendStatus {
   topics?: SerializedTopicNewsGroup[];
   preprocessedTopics?: SerializedTopicNewsGroup[];
+  preprocessedBySection?: Record<
+    NewsletterSectionHint,
+    SerializedProcessedNewsItem[]
+  >;
+  preprocessedByTopic?: Record<string, SerializedProcessedNewsItem[]>;
   preprocessStats?: {
     originalCount: number;
     representativeCount: number;
@@ -120,6 +125,7 @@ export interface NewsletterJob extends EmailSendStatus {
     processingTimeMs: number;
   };
   pendingRecipients?: string[];
+  plan?: GeminiNewsletterPlan;
   formattedHtml?: string;
   formattedText?: string;
   formattedRawText?: string;
@@ -322,6 +328,15 @@ export async function savePreprocessedData(
   id: string,
   payload: {
     preprocessedTopics: SerializedTopicNewsGroup[];
+    /** Optional: preprocessed articles grouped by target newsletter sections (commentaries, international, etc.) */
+    preprocessedBySection?: Record<
+      NewsletterSectionHint,
+      SerializedProcessedNewsItem[]
+    >;
+    /** Optional: preprocessed articles grouped by publisher/topic (more granular)
+     * Keys are arbitrary topic strings (e.g., 'business', 'tech', 'opinion').
+     */
+    preprocessedByTopic?: Record<string, SerializedProcessedNewsItem[]>;
     preprocessStats: NewsletterJob["preprocessStats"];
   }
 ): Promise<void> {
@@ -333,13 +348,164 @@ export async function savePreprocessedData(
       throw new Error(`Newsletter job ${id} not found`);
     }
 
-    const cleanedPayload = {
+    // Prepare cleaned payload for the main job document. We'll try to write
+    // the bulk data directly, but if the serialized size would exceed
+    // Firestore's 1MB limit we move large sections into subcollection
+    // documents under emailSends/{id}/preprocessedByTopic and
+    // emailSends/{id}/preprocessedBySection. This keeps backwards
+    // compatibility by leaving a small index on the main document.
+
+    const cleanedPayload: Record<string, unknown> = {
       preprocessedTopics: removeUndefinedFields(payload.preprocessedTopics),
       preprocessStats: payload.preprocessStats,
       status: "preprocessed",
     };
 
+    // Helper: estimate size of an object once stringified
+    const estimateSize = (obj: unknown) => {
+      try {
+        return Buffer.byteLength(JSON.stringify(obj || {}), "utf8");
+      } catch {
+        return 0;
+      }
+    };
+
+    // Helper: create a safe doc id from an arbitrary key
+    const safeDocId = (key: string) =>
+      key
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]/g, "-")
+        .replace(/-+/g, "-")
+        .substring(0, 150);
+
+    // Firestore document soft limit - leave a buffer from 1MB
+    const FIRESTORE_DOC_LIMIT = 1024 * 1024; // 1,048,576
+    const SAFE_LIMIT = FIRESTORE_DOC_LIMIT - 50 * 1024; // 50KB buffer
+
+    // If present, try to include preprocessedBySection and preprocessedByTopic
+    // directly, but fall back to moving them into subcollections if the size
+    // becomes too large.
+    let willStoreBySectionExternally = false;
+    let willStoreByTopicExternally = false;
+
+    if (payload.preprocessedBySection) {
+      cleanedPayload.preprocessedBySection = removeUndefinedFields(
+        payload.preprocessedBySection
+      );
+    }
+
+    if (payload.preprocessedByTopic) {
+      cleanedPayload.preprocessedByTopic = removeUndefinedFields(
+        payload.preprocessedByTopic
+      );
+    }
+
+    // If the main cleaned payload is already too large, move big pieces out.
+    const mainSize = estimateSize(cleanedPayload);
+
+    // Helper to write a set of items for a key into a subcollection, chunking
+    // if necessary. Returns an array of doc ids written for that key.
+    const writeChunksForKey = async (
+      collectionName: string,
+      key: string,
+      items: SerializedProcessedNewsItem[]
+    ): Promise<string[]> => {
+      const ids: string[] = [];
+
+      // Conservative chunking by item count to avoid huge documents.
+      const CHUNK_SIZE = 100;
+      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+        const chunk = items.slice(i, i + CHUNK_SIZE);
+        const docId = `${safeDocId(key)}${
+          chunk.length < items.length ? `-${i}` : ""
+        }`;
+        const target = doc(db, SEND_COLLECTION, id, collectionName, docId);
+        await setDoc(
+          target,
+          { items: removeUndefinedFields(chunk) },
+          { merge: true }
+        );
+        ids.push(docId);
+      }
+      return ids;
+    };
+
+    // If cleaned payload is too big, externalize 'preprocessedBySection' first
+    // (it's often the largest), then 'preprocessedByTopic' if still too big.
+    if (mainSize > SAFE_LIMIT) {
+      console.log(
+        `[firestore] preprocessed payload estimate ${mainSize} bytes exceeds safe limit ${SAFE_LIMIT}, externalizing large fields`
+      );
+
+      if (payload.preprocessedBySection) {
+        try {
+          const sectionIndex: Record<
+            string,
+            { docIds: string[]; count: number }
+          > = {};
+          for (const [sectionKey, items] of Object.entries(
+            payload.preprocessedBySection
+          )) {
+            const docIds = await writeChunksForKey(
+              "preprocessedBySection",
+              sectionKey,
+              items
+            );
+            sectionIndex[sectionKey] = { docIds, count: items.length };
+          }
+
+          // Replace the heavy object with a small index referencing the subcollection
+          cleanedPayload.preprocessedBySection =
+            removeUndefinedFields(sectionIndex);
+          willStoreBySectionExternally = true;
+        } catch (err) {
+          console.error("Error externalizing preprocessedBySection:", err);
+        }
+      }
+
+      // Recalculate size
+      if (
+        estimateSize(cleanedPayload) > SAFE_LIMIT &&
+        payload.preprocessedByTopic
+      ) {
+        try {
+          const topicIndex: Record<
+            string,
+            { docIds: string[]; count: number }
+          > = {};
+          for (const [topicKey, items] of Object.entries(
+            payload.preprocessedByTopic
+          )) {
+            const docIds = await writeChunksForKey(
+              "preprocessedByTopic",
+              topicKey,
+              items
+            );
+            topicIndex[topicKey] = { docIds, count: items.length };
+          }
+
+          cleanedPayload.preprocessedByTopic =
+            removeUndefinedFields(topicIndex);
+          willStoreByTopicExternally = true;
+        } catch (err) {
+          console.error("Error externalizing preprocessedByTopic:", err);
+        }
+      }
+    }
+
+    // Final write to main document (small index only if externalized)
     await setDoc(ref, cleanedPayload, { merge: true });
+
+    if (willStoreBySectionExternally) {
+      console.log(
+        "[firestore] Stored preprocessedBySection externally in subcollection"
+      );
+    }
+    if (willStoreByTopicExternally) {
+      console.log(
+        "[firestore] Stored preprocessedByTopic externally in subcollection"
+      );
+    }
   } catch (error) {
     console.error("Error saving preprocessed data:", error);
     throw new Error("Failed to save preprocessed data");
@@ -349,9 +515,7 @@ export async function savePreprocessedData(
 export async function saveNewsletterPlanStage(
   id: string,
   payload: {
-    formattedHtml: string;
-    formattedText: string;
-    formattedRawText: string;
+    plan: GeminiNewsletterPlan;
     aiMetadata: NewsletterJob["aiMetadata"];
     summaryText: string;
     emailSubject: string;
@@ -370,9 +534,7 @@ export async function saveNewsletterPlanStage(
       job.pendingRecipientsCount ?? job.pendingRecipients?.length ?? 0;
 
     const update: Partial<NewsletterJob> & Record<string, unknown> = {
-      formattedHtml: payload.formattedHtml,
-      formattedText: payload.formattedText,
-      formattedRawText: payload.formattedRawText,
+      plan: payload.plan,
       aiMetadata: payload.aiMetadata,
       summaryText: payload.summaryText,
       emailSubject: payload.emailSubject,

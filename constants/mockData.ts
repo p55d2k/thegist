@@ -112,7 +112,7 @@ export const MOCK_NEWSLETTER_DATA = {
       topic: "Business & Technology",
       slug: "business-tech",
       publisher: "BBC",
-      sectionHints: ["business-tech"],
+      sectionHints: ["business", "tech"],
       items: [
         {
           title:
@@ -125,7 +125,7 @@ export const MOCK_NEWSLETTER_DATA = {
           publisher: "ChannelNewsAsia",
           topic: "Business & Technology",
           slug: "business-tech",
-          sectionHints: ["business-tech"],
+          sectionHints: ["tech"],
         },
         {
           title: "When is the Budget and what might be in it?",
@@ -137,7 +137,7 @@ export const MOCK_NEWSLETTER_DATA = {
           publisher: "BBC",
           topic: "Business & Technology",
           slug: "business-tech",
-          sectionHints: ["business-tech"],
+          sectionHints: ["business"],
         },
         {
           title:
@@ -150,7 +150,7 @@ export const MOCK_NEWSLETTER_DATA = {
           publisher: "BBC",
           topic: "Business & Technology",
           slug: "business-tech",
-          sectionHints: ["business-tech"],
+          sectionHints: ["business"],
         },
       ],
     },
@@ -230,7 +230,7 @@ export const MOCK_NEWSLETTER_DATA = {
       topic: "Science & Health",
       slug: "science",
       publisher: "BBC",
-      sectionHints: ["commentaries"],
+      sectionHints: ["culture"],
       items: [
         {
           title: "Scientists make embryos from human skin DNA for first time",
@@ -242,7 +242,7 @@ export const MOCK_NEWSLETTER_DATA = {
           publisher: "BBC",
           topic: "Science & Health",
           slug: "science",
-          sectionHints: ["commentaries"],
+          sectionHints: ["culture"],
         },
       ],
     },
@@ -250,7 +250,7 @@ export const MOCK_NEWSLETTER_DATA = {
       topic: "Sports & Culture",
       slug: "wildcard",
       publisher: "BBC",
-      sectionHints: ["wildcard"],
+      sectionHints: ["sport"],
       items: [
         {
           title: "The NFL tactics influencing the Premier League",
@@ -262,7 +262,7 @@ export const MOCK_NEWSLETTER_DATA = {
           publisher: "BBC",
           topic: "Sports & Culture",
           slug: "wildcard",
-          sectionHints: ["wildcard"],
+          sectionHints: ["sport"],
         },
       ],
     },

@@ -1074,6 +1074,91 @@ export function getRepresentatives<T>(clusters: ArticleCluster<T>[]): T[] {
 }
 
 // ============================================================================
+// Pre-clustering by Section Hints (Fast Path)
+// ============================================================================
+
+export interface PreClusteredArticles<T> {
+  /** Articles with confirmed section hints (no clustering needed) */
+  preClustered: Map<NewsletterSectionHint, T[]>;
+  /** Articles with ambiguous hints (need full clustering) */
+  needsClustering: T[];
+}
+
+/**
+ * Pre-cluster articles by section hints when they're unambiguous.
+ * This is a fast path that avoids expensive similarity calculations
+ * for articles we already know belong to a specific section.
+ *
+ * An article is "confirmed" if it has exactly ONE section hint that
+ * matches a known section (commentaries, business-tech, politics, international, wildcard).
+ *
+ * Example:
+ * - "cnn-opinion" has sectionHints: ["commentaries", "politics"] → needs clustering (ambiguous)
+ * - "st-opinion" has sectionHints: ["commentaries"] → pre-clustered as commentaries
+ * - "bbc-news" has sectionHints: ["international"] → pre-clustered as international
+ */
+export function preClusterByHints<
+  T extends { sectionHints: NewsletterSectionHint[] }
+>(items: T[]): PreClusteredArticles<T> {
+  const preClustered = new Map<NewsletterSectionHint, T[]>([
+    ["commentaries", []],
+    ["international", []],
+    ["politics", []],
+    ["business", []],
+    ["tech", []],
+    ["sport", []],
+    ["culture", []],
+    ["wildcard", []],
+  ]);
+  const needsClustering: T[] = [];
+
+  for (const item of items) {
+    const hints = item.sectionHints || [];
+
+    // Filter to only known section hints (excluding "commentaries" dupes, etc.)
+    const validHints = hints.filter((hint) =>
+      [
+        "commentaries",
+        "international",
+        "politics",
+        "business",
+        "tech",
+        "sport",
+        "culture",
+        "wildcard",
+      ].includes(hint)
+    );
+
+    // If exactly one valid hint, pre-cluster it
+    if (validHints.length === 1) {
+      const hint = validHints[0];
+      preClustered.get(hint)!.push(item);
+    } else {
+      // Multiple or no valid hints → needs full clustering
+      needsClustering.push(item);
+    }
+  }
+
+  const preClusteredCount = Array.from(preClustered.values()).reduce(
+    (sum, arr) => sum + arr.length,
+    0
+  );
+
+  console.log(
+    `[preprocess] Pre-clustered ${preClusteredCount} articles by hints, ${needsClustering.length} need full clustering`
+  );
+
+  // Log distribution
+  preClustered.forEach((articles, hint) => {
+    if (articles.length > 0) {
+      console.log(`[preprocess]   ${hint}: ${articles.length} articles`);
+    }
+  });
+
+  return { preClustered, needsClustering };
+}
+
+// ============================================================================
 // Preprocessing Pipeline
 // ============================================================================
 
@@ -1084,13 +1169,15 @@ export interface PreprocessStats {
   representativeCount: number;
   reductionPercent: number;
   processingTimeMs: number;
+  preClusteredCount?: number;
 }
 
 /**
- * Full preprocessing pipeline:
+ * Full preprocessing pipeline with pre-clustering optimization:
  * 1. Dedupe by URL
- * 2. Cluster by title similarity
- * 3. Extract representatives
+ * 2. Pre-cluster by unambiguous section hints (fast path)
+ * 3. Cluster remaining articles by title similarity
+ * 4. Extract representatives
  */
 export function preprocessArticles<
   T extends {
@@ -1099,6 +1186,7 @@ export function preprocessArticles<
     pubDate: Date;
     publisher: string;
     link: string;
+    sectionHints: NewsletterSectionHint[];
   }
 >(
   items: T[],
@@ -1107,41 +1195,67 @@ export function preprocessArticles<
   representatives: T[];
   clusters: ArticleCluster<T>;
   stats: PreprocessStats;
+  preClustered?: Map<NewsletterSectionHint, T[]>;
 } {
   const startTime = Date.now();
 
   // Step 1: Dedupe by URL
   const deduped = dedupeByUrl(items);
 
-  // Step 2: Cluster by title similarity
-  const initialClusters = clusterArticles(deduped, options);
+  // Step 2: Pre-cluster by unambiguous section hints (OPTIMIZATION)
+  const { preClustered, needsClustering } = preClusterByHints(deduped);
 
-  // Step 3: Merge similar clusters (second pass)
+  // Step 3: Cluster remaining ambiguous articles by title similarity
+  const initialClusters = clusterArticles(needsClustering, options);
+
+  // Step 4: Merge similar clusters (second pass)
   const mergedClusters = mergeSimilarClusters(initialClusters, 0.5); // LOWERED from 0.65
 
-  // Step 4: Extract representatives
-  const representatives = getRepresentatives(mergedClusters);
+  // Step 5: Extract representatives from clustered articles
+  const clusteredRepresentatives = getRepresentatives(mergedClusters);
+
+  // Step 6: Combine pre-clustered articles with clustered representatives
+  // Pre-clustered articles don't need further deduplication since they're already
+  // from distinct feeds with clear section assignments
+  const allRepresentatives = [
+    ...clusteredRepresentatives,
+    ...Array.from(preClustered.values()).flat(),
+  ];
 
   const processingTimeMs = Date.now() - startTime;
+
+  const preClusteredCount = Array.from(preClustered.values()).reduce(
+    (sum, arr) => sum + arr.length,
+    0
+  );
 
   const stats: PreprocessStats = {
     originalCount: items.length,
     afterDedupeCount: deduped.length,
     clusterCount: mergedClusters.length,
-    representativeCount: representatives.length,
+    representativeCount: allRepresentatives.length,
     reductionPercent:
       items.length > 0
         ? Math.round(
-            ((items.length - representatives.length) / items.length) * 100
+            ((items.length - allRepresentatives.length) / items.length) * 100
           )
         : 0,
     processingTimeMs,
+    preClusteredCount,
   };
 
+  console.log(
+    `[preprocess] Pipeline complete: ${items.length} → ${deduped.length} (deduped) → ${allRepresentatives.length} (final)`
+  );
+  console.log(
+    `[preprocess]   Pre-clustered: ${preClusteredCount}, Clustered: ${clusteredRepresentatives.length}`
+  );
+
   return {
-    representatives,
+    representatives: allRepresentatives,
     clusters: mergedClusters as any, // Type simplification for export
     stats,
+    preClustered,
   };
 }
 

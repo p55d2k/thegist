@@ -136,16 +136,18 @@ const EmailPreview = () => {
           sanity-check layout, sources, and summaries before hitting send.
         </p>
         <div className="inline-flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-600">
-          <span>{formatted.totalArticles} articles</span>
+          <span>{formatted?.totalArticles ?? 0} articles</span>
           <span className="text-slate-400">•</span>
-          <span>{formatted.totalTopics} topics</span>
+          <span>{formatted?.totalTopics ?? 0} topics</span>
           <span className="text-slate-400">•</span>
-          <span>{formatted.totalPublishers} sources</span>
+          <span>{formatted?.totalPublishers ?? 0} sources</span>
           <span className="text-slate-400">•</span>
           <span>
-            {formatted.aiMetadata.usedFallback
+            {formatted?.aiMetadata?.usedFallback
               ? "Human safeguards"
-              : `AI via ${formatted.aiMetadata.model}`}
+              : formatted?.aiMetadata?.model
+              ? `AI via ${formatted.aiMetadata.model}`
+              : "AI metadata unavailable"}
           </span>
         </div>
       </header>
@@ -181,15 +183,17 @@ const EmailPreview = () => {
               {formatted.plan.essentialReads.overview}
             </p>
             <ul className="mt-2 list-disc space-y-1 pl-4 text-slate-600">
-              {formatted.plan.essentialReads.highlights.map((item: any) => (
-                <li key={item.link}>
-                  <span className="font-medium text-slate-800">
-                    {item.title}
-                  </span>
-                  {": "}
-                  {item.summary}
-                </li>
-              ))}
+              {(formatted?.plan?.essentialReads?.highlights ?? []).map(
+                (item: any) => (
+                  <li key={item.link}>
+                    <span className="font-medium text-slate-800">
+                      {item.title}
+                    </span>
+                    {": "}
+                    {item.summary}
+                  </li>
+                )
+              )}
             </ul>
           </div>
           <div className="space-y-1 text-slate-600">
@@ -197,30 +201,30 @@ const EmailPreview = () => {
               <span className="font-semibold text-slate-900">
                 Commentaries:
               </span>{" "}
-              {formatted.plan.commentaries.length} picks
+              {(formatted?.plan?.commentaries ?? []).length} picks
             </div>
             <div>
               <span className="font-semibold text-slate-900">
                 International:
               </span>{" "}
-              {formatted.plan.international.length} stories
+              {(formatted?.plan?.international ?? []).length} stories
             </div>
             <div>
               <span className="font-semibold text-slate-900">Politics:</span>{" "}
-              {formatted.plan.politics.length} stories
+              {(formatted?.plan?.politics ?? []).length} stories
             </div>
             <div>
               <span className="font-semibold text-slate-900">
                 Business & tech:
               </span>{" "}
-              {formatted.plan.businessAndTech.length} stories
+              {(formatted?.plan?.businessAndTech ?? []).length} stories
             </div>
             <div>
               <span className="font-semibold text-slate-900">Wild card:</span>{" "}
-              {formatted.plan.wildCard.length} feature
+              {(formatted?.plan?.wildCard ?? []).length} feature
             </div>
             <div className="pt-2 text-slate-500">
-              Summary: {formatted.plan.summary}
+              Summary: {formatted?.plan?.summary ?? "(no summary)"}
             </div>
           </div>
         </div>

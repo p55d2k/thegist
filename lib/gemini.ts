@@ -212,12 +212,16 @@ const parseGeminiPipePlan = (
     commentaries: [],
     international: [],
     politics: [],
-    businessAndTech: [],
+    business: [],
+    tech: [],
+    sport: [],
+    culture: [],
     wildCard: [],
   };
 
   const usedSectionIds = new Set<string>();
   const usedHighlightIds = new Set<string>();
+  const usedIds = new Set<string>();
 
   let overviewText: string | undefined;
   let summaryText: string | undefined;
@@ -265,13 +269,14 @@ const parseGeminiPipePlan = (
     const generatedSummary = parts.slice(2).join("|").trim();
 
     if (sectionToken === "highlight") {
-      if (usedHighlightIds.has(idToken)) {
+      if (usedIds.has(idToken)) {
         continue;
       }
       highlightItems.push(
         createSectionItemFromArticle(article, generatedSummary)
       );
       usedHighlightIds.add(idToken);
+      usedIds.add(idToken);
       continue;
     }
 
@@ -280,7 +285,7 @@ const parseGeminiPipePlan = (
       continue;
     }
 
-    if (usedSectionIds.has(idToken)) {
+    if (usedIds.has(idToken)) {
       continue;
     }
 
@@ -292,6 +297,7 @@ const parseGeminiPipePlan = (
       createSectionItemFromArticle(article, generatedSummary)
     );
     usedSectionIds.add(idToken);
+    usedIds.add(idToken);
   }
 
   const hasCoverage =
@@ -299,7 +305,8 @@ const parseGeminiPipePlan = (
     sectionItems.commentaries.length <= SECTION_LIMITS.commentaries &&
     sectionItems.international.length >= 2 &&
     sectionItems.politics.length >= 2 &&
-    sectionItems.businessAndTech.length >= 2 &&
+    sectionItems.business.length >= 2 &&
+    sectionItems.tech.length >= 2 &&
     sectionItems.wildCard.length === 1 &&
     highlightItems.length >= 4;
 
@@ -309,7 +316,10 @@ const parseGeminiPipePlan = (
         commentaries: sectionItems.commentaries.length,
         international: sectionItems.international.length,
         politics: sectionItems.politics.length,
-        businessAndTech: sectionItems.businessAndTech.length,
+        business: sectionItems.business.length,
+        tech: sectionItems.tech.length,
+        sport: sectionItems.sport.length,
+        culture: sectionItems.culture.length,
         wildCard: sectionItems.wildCard.length,
         highlights: highlightItems.length,
       },
@@ -328,11 +338,14 @@ const parseGeminiPipePlan = (
     commentaries: sectionItems.commentaries,
     international: sectionItems.international,
     politics: sectionItems.politics,
-    businessAndTech: sectionItems.businessAndTech,
+    business: sectionItems.business,
+    tech: sectionItems.tech,
+    sport: sectionItems.sport,
+    culture: sectionItems.culture,
     wildCard: sectionItems.wildCard.slice(0, SECTION_LIMITS.wildCard),
     summary:
       summaryText ??
-      "A concise mix of commentary, geopolitics, policy, markets, and one wildcard piece to stretch your thinking.",
+      "A concise mix of commentary, geopolitics, policy, markets, tech, and one wildcard piece to stretch your thinking.",
   };
 };
 
@@ -343,16 +356,19 @@ const RESPONSE_TEMPLATE = [
   "commentaries|a001|1-2 vivid sentences",
   "international|a002|1-2 vivid sentences",
   "politics|a003|1-2 vivid sentences",
-  "businessAndTech|a004|1-2 vivid sentences",
-  "wildCard|a005|1-2 vivid sentences",
+  "business|a004|1-2 vivid sentences",
+  "tech|a005|1-2 vivid sentences",
+  "sport|a006|1-2 vivid sentences",
+  "culture|a007|1-2 vivid sentences",
+  "wildCard|a008|1-2 vivid sentences",
 ].join("\n");
 
 const buildPlanPrompt = (dataset: string): string =>
   [
     "Plan newsletter from: id|slug|topic|publisher|title|summary|hints",
-    "Rules: 4 highlights, 5-7 commentaries, 2-3 international/politics/businessAndTech, 1 wildCard",
-    "Format: section|id|1-2 sentence summary",
-    "Also add: overview|text and summary|text",
+    "Select: 4 highlights, 5-7 commentaries (2-3: intl/politics/business/tech, 1-2: sport/culture, 1 wildcard)",
+    "Constraints: max 3-4 articles/publisher at best, summaries must be specific not generic",
+    "Output: section|id|summary(1-2 sent), overview|text, summary|text",
     "Example:",
     RESPONSE_TEMPLATE,
     "\nDataset:",
@@ -445,11 +461,10 @@ const buildFallbackPlan = (
   const commentaries = fillSectionFromPool("commentaries", pool, usedLinks);
   const international = fillSectionFromPool("international", pool, usedLinks);
   const politics = fillSectionFromPool("politics", pool, usedLinks);
-  const businessAndTech = fillSectionFromPool(
-    "businessAndTech",
-    pool,
-    usedLinks
-  );
+  const business = fillSectionFromPool("business", pool, usedLinks);
+  const tech = fillSectionFromPool("tech", pool, usedLinks);
+  const sport = fillSectionFromPool("sport", pool, usedLinks);
+  const culture = fillSectionFromPool("culture", pool, usedLinks);
   const wildCard = fillSectionFromPool("wildCard", pool, usedLinks);
 
   const overviewSegments: string[] = [];
@@ -462,8 +477,17 @@ const buildFallbackPlan = (
   if (politics.length) {
     overviewSegments.push(`${politics.length} political insights`);
   }
-  if (businessAndTech.length) {
-    overviewSegments.push(`${businessAndTech.length} business & tech moves`);
+  if (business.length) {
+    overviewSegments.push(`${business.length} business moves`);
+  }
+  if (tech.length) {
+    overviewSegments.push(`${tech.length} tech updates`);
+  }
+  if (sport.length) {
+    overviewSegments.push(`${sport.length} sports highlights`);
+  }
+  if (culture.length) {
+    overviewSegments.push(`${culture.length} cultural pieces`);
   }
 
   const overview =
@@ -475,7 +499,8 @@ const buildFallbackPlan = (
     ...commentaries.slice(0, 2),
     ...international.slice(0, 1),
     ...politics.slice(0, 1),
-    ...businessAndTech.slice(0, 1),
+    ...business.slice(0, 1),
+    ...tech.slice(0, 1),
   ];
 
   const highlights = highlightPool.slice(0, 4);
@@ -485,7 +510,10 @@ const buildFallbackPlan = (
       ...commentaries,
       ...international,
       ...politics,
-      ...businessAndTech,
+      ...business,
+      ...tech,
+      ...sport,
+      ...culture,
       ...wildCard,
     ].map((item) => item.publisher)
   );
@@ -494,7 +522,10 @@ const buildFallbackPlan = (
     commentaries.length +
     international.length +
     politics.length +
-    businessAndTech.length +
+    business.length +
+    tech.length +
+    sport.length +
+    culture.length +
     wildCard.length
   } pieces across ${
     uniquePublishers.size
@@ -508,7 +539,10 @@ const buildFallbackPlan = (
     commentaries,
     international,
     politics,
-    businessAndTech,
+    business,
+    tech,
+    sport,
+    culture,
     wildCard,
     summary,
   };
@@ -549,7 +583,10 @@ const buildPreviewPlan = (
     commentaries: [],
     international: [],
     politics: [],
-    businessAndTech: [],
+    business: [],
+    tech: [],
+    sport: [],
+    culture: [],
     wildCard: [],
     summary,
   };
@@ -641,9 +678,91 @@ const makeStreamingGeminiCall = async (
   return { rawText, parsed };
 };
 
+/**
+ * Smart sampling strategy for pre-clustered articles.
+ * Instead of sending ALL articles to Gemini, we intelligently sample
+ * from each section based on limits, reducing input size dramatically.
+ *
+ * Strategy:
+ * - Commentaries: Send top 15 (need to pick 5-7)
+ * - International: Send top 8 (need to pick 2-3)
+ * - Politics: Send top 8 (need to pick 2-3)
+ * - Business-Tech: Send top 8 (need to pick 2-3)
+ * - Wildcard: Send top 5 (need to pick 1)
+ *
+ * This reduces input from ~60 articles to ~44 articles, but more importantly,
+ * ensures each section has enough candidates without overwhelming Gemini.
+ */
+const smartSamplePreClusteredArticles = (
+  preClustered: Map<string, ProcessedNewsItem[]> | undefined,
+  ambiguousArticles: ProcessedNewsItem[]
+): ProcessedNewsItem[] => {
+  if (!preClustered || preClustered.size === 0) {
+    // No pre-clustering, return all articles sorted by date
+    return [...ambiguousArticles].sort(
+      (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
+    );
+  }
+
+  const samplingLimits: Record<string, number> = {
+    commentaries: 20,
+    international: 10,
+    politics: 10,
+    business: 10,
+    tech: 10,
+    sport: 7,
+    culture: 7,
+    wildcard: 5,
+  };
+
+  const sampled: ProcessedNewsItem[] = [];
+
+  // Sample from each pre-clustered section
+  preClustered.forEach((articles, hint) => {
+    const limit = samplingLimits[hint] || 5;
+    const sorted = [...articles].sort(
+      (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
+    );
+    sampled.push(...sorted.slice(0, limit));
+  });
+
+  // Add ambiguous articles (these went through full clustering)
+  const sortedAmbiguous = [...ambiguousArticles].sort(
+    (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
+  );
+  sampled.push(...sortedAmbiguous);
+
+  console.log(
+    `[gemini] Smart sampling: ${sampled.length} articles from pre-clustered + ambiguous`
+  );
+  preClustered.forEach((articles, hint) => {
+    const limit = samplingLimits[hint] || 5;
+    const sampleCount = Math.min(articles.length, limit);
+    if (sampleCount > 0) {
+      console.log(
+        `[gemini]   ${hint}: ${sampleCount} of ${articles.length} articles`
+      );
+    }
+  });
+  console.log(
+    `[gemini]   ambiguous: ${sortedAmbiguous.length} articles (post-clustering)`
+  );
+
+  return sampled;
+};
+
 export const generateNewsletterPlan = async (
-  articles: ProcessedNewsItem[]
+  articles: ProcessedNewsItem[],
+  preClustered?: Map<string, ProcessedNewsItem[]>
 ): Promise<PlanResult> => {
+  // MANDATORY: Require preprocessing before Gemini can run
+  if (!preClustered || preClustered.size === 0) {
+    return buildFallbackPlan(
+      articles,
+      "Preprocessing required: Must run through /api/preprocess before Gemini can generate newsletter plan"
+    );
+  }
+
   if (articles.length === 0) {
     return buildFallbackPlan(articles, "No articles available to summarise");
   }
@@ -667,7 +786,14 @@ export const generateNewsletterPlan = async (
     },
   });
 
-  const sortedArticles = [...articles].sort(
+  // OPTIMIZATION: Smart sampling from pre-clustered articles
+  // This dramatically reduces input size while maintaining quality
+  const sampledArticles = smartSamplePreClusteredArticles(
+    preClustered,
+    articles
+  );
+
+  const sortedArticles = [...sampledArticles].sort(
     (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
   );
 

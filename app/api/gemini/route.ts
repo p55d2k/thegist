@@ -132,10 +132,7 @@ export async function POST(request: NextRequest) {
   const formatted = await formatArticles(topicsToUse);
 
   await saveNewsletterPlanStage(sendId, {
-    // Ensure the saved HTML includes the sendId so sent emails match the preview
-    formattedHtml: formatBody(formatted, sendId),
-    formattedText: formatted.text,
-    formattedRawText: formatRawBody(formatted, sendId),
+    plan: formatted.plan,
     aiMetadata: formatted.aiMetadata,
     summaryText: formatted.plan.summary,
     emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
