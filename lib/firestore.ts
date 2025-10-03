@@ -11,10 +11,15 @@ import {
   Timestamp,
   getDoc,
   deleteField,
+  runTransaction,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
 import { v4 as uuidv4 } from "uuid";
+import {
+  computeArticlesSummary,
+  mergeSerializedTopics,
+} from "@/lib/news-helpers";
 
 export interface Subscriber {
   email: string;
@@ -28,8 +33,8 @@ export interface EmailSendStatus {
   completedAt?: Date | Timestamp;
   status:
     | "pending"
+    | "news-collecting"
     | "news-ready"
-    | "preprocessed"
     | "ready-to-send"
     | "sending"
     | "success"
@@ -112,18 +117,9 @@ export type SerializedTopicNewsGroup = {
 
 export interface NewsletterJob extends EmailSendStatus {
   topics?: SerializedTopicNewsGroup[];
-  preprocessedTopics?: SerializedTopicNewsGroup[];
-  preprocessedBySection?: Record<
-    NewsletterSectionHint,
-    SerializedProcessedNewsItem[]
-  >;
-  preprocessedByTopic?: Record<string, SerializedProcessedNewsItem[]>;
-  preprocessStats?: {
-    originalCount: number;
-    representativeCount: number;
-    reductionPercent: number;
-    processingTimeMs: number;
-  };
+  // Legacy clustering/deduplication fields from older workflows may still be
+  // present in existing documents but are no longer produced by the current
+  // news collection pipeline.
   pendingRecipients?: string[];
   plan?: GeminiNewsletterPlan;
   formattedHtml?: string;
@@ -137,6 +133,8 @@ export interface NewsletterJob extends EmailSendStatus {
   summaryText?: string;
   emailSubject?: string;
   batchSize: number;
+  newsCursor?: number;
+  sourcesTotal?: number;
 }
 
 // Subscriber helpers -------------------------------------------------------
@@ -195,16 +193,24 @@ export async function createNewsletterJobFromNews(payload: {
   recipients: string[];
   batchSize: number;
   sendId?: string;
+  status?: NewsletterJob["status"];
+  newsCursor?: number;
+  sourcesTotal?: number;
 }): Promise<NewsletterJob> {
   try {
     const id = payload.sendId ?? generateSendId();
     const ref = doc(db, SEND_COLLECTION, id);
     const now = new Date();
 
+    const computedStatus =
+      payload.recipients.length === 0
+        ? "failed"
+        : payload.status ?? "news-ready";
+
     const job: NewsletterJob = {
       id,
       startedAt: now,
-      status: payload.recipients.length === 0 ? "failed" : "news-ready",
+      status: computedStatus,
       totalRecipients: payload.recipients.length,
       successfulRecipients: 0,
       failedRecipients: 0,
@@ -214,6 +220,9 @@ export async function createNewsletterJobFromNews(payload: {
       pendingRecipients: payload.recipients,
       batchSize: payload.batchSize,
       newsFetchedAt: now,
+      lastBatchAt: now,
+      newsCursor: payload.newsCursor,
+      sourcesTotal: payload.sourcesTotal,
     };
 
     if (payload.recipients.length === 0) {
@@ -228,6 +237,124 @@ export async function createNewsletterJobFromNews(payload: {
     console.error("Error creating newsletter job:", error);
     throw new Error("Failed to create newsletter job");
   }
+}
+
+export class NewsJobCursorConflictError extends Error {
+  constructor(message: string = "News job cursor advanced by another worker") {
+    super(message);
+    this.name = "NewsJobCursorConflictError";
+  }
+}
+
+export async function findActiveNewsCollectionJob(): Promise<{
+  id: string;
+  job: NewsletterJob;
+} | null> {
+  try {
+    const jobsRef = collection(db, SEND_COLLECTION);
+    const jobsQuery = query(
+      jobsRef,
+      where("status", "==", "news-collecting"),
+      orderBy("startedAt", "asc"),
+      limit(1)
+    );
+    const snapshot = await getDocs(jobsQuery);
+    if (snapshot.empty) {
+      return null;
+    }
+
+    const docSnapshot = snapshot.docs[0];
+    return {
+      id: docSnapshot.id,
+      job: docSnapshot.data() as NewsletterJob,
+    };
+  } catch (error) {
+    console.error("Error finding active news collection job:", error);
+    throw new Error("Failed to locate news collection job");
+  }
+}
+
+export async function appendNewsBatchToJob(params: {
+  id: string;
+  expectedCursor: number;
+  newTopics: SerializedTopicNewsGroup[];
+  cursorIncrement: number;
+  totalSources: number;
+}): Promise<{
+  newsCursor: number;
+  sourcesTotal: number;
+  status: NewsletterJob["status"];
+  articlesSummary: EmailSendStatus["articlesSummary"];
+  appendedArticles: number;
+  totalRecipients: number;
+  pendingRecipientsCount: number;
+}> {
+  const { id, expectedCursor, newTopics, cursorIncrement, totalSources } =
+    params;
+
+  return runTransaction(db, async (transaction) => {
+    const ref = doc(db, SEND_COLLECTION, id);
+    const snapshot = await transaction.get(ref);
+
+    if (!snapshot.exists()) {
+      throw new Error(`Newsletter job ${id} not found`);
+    }
+
+    const jobData = snapshot.data() as NewsletterJob;
+    const currentCursor = jobData.newsCursor ?? 0;
+
+    if (currentCursor !== expectedCursor) {
+      throw new NewsJobCursorConflictError();
+    }
+
+    const resolvedSourcesTotal = Math.max(
+      totalSources,
+      jobData.sourcesTotal ?? 0
+    );
+
+    const { topics: mergedTopics, appendedArticles } = mergeSerializedTopics(
+      jobData.topics,
+      newTopics
+    );
+
+    const newCursor = Math.min(
+      resolvedSourcesTotal,
+      currentCursor + cursorIncrement
+    );
+    const isComplete = newCursor >= resolvedSourcesTotal;
+    const now = new Date();
+
+    const articlesSummary = computeArticlesSummary(mergedTopics);
+
+    const nextStatus = isComplete ? "news-ready" : "news-collecting";
+
+    transaction.set(
+      ref,
+      {
+        topics: mergedTopics,
+        newsCursor: newCursor,
+        sourcesTotal: resolvedSourcesTotal,
+        articlesSummary,
+        status: nextStatus,
+        newsFetchedAt: now,
+        lastBatchAt: now,
+      },
+      { merge: true }
+    );
+
+    return {
+      newsCursor: newCursor,
+      sourcesTotal: resolvedSourcesTotal,
+      status: nextStatus,
+      articlesSummary,
+      appendedArticles,
+      totalRecipients: jobData.totalRecipients,
+      pendingRecipientsCount:
+        jobData.pendingRecipientsCount ??
+        jobData.pendingRecipients?.length ??
+        0,
+    };
+  });
 }
 
 async function queryNewsletterJobs(
@@ -278,19 +405,17 @@ export async function getNewsletterJob(
   }
 }
 
-export async function getNextNewsletterJobNeedingPreprocessing(): Promise<{
-  id: string;
-  job: NewsletterJob;
-} | null> {
-  const [result] = await queryNewsletterJobs(["news-ready"]);
-  return result ?? null;
-}
+// Legacy helper removed: clustering is now handled as part of the news
+// collection pipeline. Keep the job selection logic centered on `news-ready`
+// for Gemini consumers.
 
 export async function getNextNewsletterJobNeedingGemini(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
-  const [result] = await queryNewsletterJobs(["preprocessed"]);
+  // Gemini operates directly on jobs whose status is `news-ready`
+  // (the results of `/api/news`).
+  const [result] = await queryNewsletterJobs(["news-ready"]);
   return result ?? null;
 }
 
@@ -324,193 +449,8 @@ export async function markNewsletterJobAsSending(id: string): Promise<void> {
   }
 }
 
-export async function savePreprocessedData(
-  id: string,
-  payload: {
-    preprocessedTopics: SerializedTopicNewsGroup[];
-    /** Optional: preprocessed articles grouped by target newsletter sections (commentaries, international, etc.) */
-    preprocessedBySection?: Record<
-      NewsletterSectionHint,
-      SerializedProcessedNewsItem[]
-    >;
-    /** Optional: preprocessed articles grouped by publisher/topic (more granular)
-     * Keys are arbitrary topic strings (e.g., 'business', 'tech', 'opinion').
-     */
-    preprocessedByTopic?: Record<string, SerializedProcessedNewsItem[]>;
-    preprocessStats: NewsletterJob["preprocessStats"];
-  }
-): Promise<void> {
-  try {
-    const ref = doc(db, SEND_COLLECTION, id);
-    const snapshot = await getDoc(ref);
-
-    if (!snapshot.exists()) {
-      throw new Error(`Newsletter job ${id} not found`);
-    }
-
-    // Prepare cleaned payload for the main job document. We'll try to write
-    // the bulk data directly, but if the serialized size would exceed
-    // Firestore's 1MB limit we move large sections into subcollection
-    // documents under emailSends/{id}/preprocessedByTopic and
-    // emailSends/{id}/preprocessedBySection. This keeps backwards
-    // compatibility by leaving a small index on the main document.
-
-    const cleanedPayload: Record<string, unknown> = {
-      preprocessedTopics: removeUndefinedFields(payload.preprocessedTopics),
-      preprocessStats: payload.preprocessStats,
-      status: "preprocessed",
-    };
-
-    // Helper: estimate size of an object once stringified
-    const estimateSize = (obj: unknown) => {
-      try {
-        return Buffer.byteLength(JSON.stringify(obj || {}), "utf8");
-      } catch {
-        return 0;
-      }
-    };
-
-    // Helper: create a safe doc id from an arbitrary key
-    const safeDocId = (key: string) =>
-      key
-        .toLowerCase()
-        .replace(/[^a-z0-9-_]/g, "-")
-        .replace(/-+/g, "-")
-        .substring(0, 150);
-
-    // Firestore document soft limit - leave a buffer from 1MB
-    const FIRESTORE_DOC_LIMIT = 1024 * 1024; // 1,048,576
-    const SAFE_LIMIT = FIRESTORE_DOC_LIMIT - 50 * 1024; // 50KB buffer
-
-    // If present, try to include preprocessedBySection and preprocessedByTopic
-    // directly, but fall back to moving them into subcollections if the size
-    // becomes too large.
-    let willStoreBySectionExternally = false;
-    let willStoreByTopicExternally = false;
-
-    if (payload.preprocessedBySection) {
-      cleanedPayload.preprocessedBySection = removeUndefinedFields(
-        payload.preprocessedBySection
-      );
-    }
-
-    if (payload.preprocessedByTopic) {
-      cleanedPayload.preprocessedByTopic = removeUndefinedFields(
-        payload.preprocessedByTopic
-      );
-    }
-
-    // If the main cleaned payload is already too large, move big pieces out.
-    const mainSize = estimateSize(cleanedPayload);
-
-    // Helper to write a set of items for a key into a subcollection, chunking
-    // if necessary. Returns an array of doc ids written for that key.
-    const writeChunksForKey = async (
-      collectionName: string,
-      key: string,
-      items: SerializedProcessedNewsItem[]
-    ): Promise<string[]> => {
-      const ids: string[] = [];
-
-      // Conservative chunking by item count to avoid huge documents.
-      const CHUNK_SIZE = 100;
-      for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-        const chunk = items.slice(i, i + CHUNK_SIZE);
-        const docId = `${safeDocId(key)}${
-          chunk.length < items.length ? `-${i}` : ""
-        }`;
-        const target = doc(db, SEND_COLLECTION, id, collectionName, docId);
-        await setDoc(
-          target,
-          { items: removeUndefinedFields(chunk) },
-          { merge: true }
-        );
-        ids.push(docId);
-      }
-      return ids;
-    };
-
-    // If cleaned payload is too big, externalize 'preprocessedBySection' first
-    // (it's often the largest), then 'preprocessedByTopic' if still too big.
-    if (mainSize > SAFE_LIMIT) {
-      console.log(
-        `[firestore] preprocessed payload estimate ${mainSize} bytes exceeds safe limit ${SAFE_LIMIT}, externalizing large fields`
-      );
-
-      if (payload.preprocessedBySection) {
-        try {
-          const sectionIndex: Record<
-            string,
-            { docIds: string[]; count: number }
-          > = {};
-          for (const [sectionKey, items] of Object.entries(
-            payload.preprocessedBySection
-          )) {
-            const docIds = await writeChunksForKey(
-              "preprocessedBySection",
-              sectionKey,
-              items
-            );
-            sectionIndex[sectionKey] = { docIds, count: items.length };
-          }
-
-          // Replace the heavy object with a small index referencing the subcollection
-          cleanedPayload.preprocessedBySection =
-            removeUndefinedFields(sectionIndex);
-          willStoreBySectionExternally = true;
-        } catch (err) {
-          console.error("Error externalizing preprocessedBySection:", err);
-        }
-      }
-
-      // Recalculate size
-      if (
-        estimateSize(cleanedPayload) > SAFE_LIMIT &&
-        payload.preprocessedByTopic
-      ) {
-        try {
-          const topicIndex: Record<
-            string,
-            { docIds: string[]; count: number }
-          > = {};
-          for (const [topicKey, items] of Object.entries(
-            payload.preprocessedByTopic
-          )) {
-            const docIds = await writeChunksForKey(
-              "preprocessedByTopic",
-              topicKey,
-              items
-            );
-            topicIndex[topicKey] = { docIds, count: items.length };
-          }
-
-          cleanedPayload.preprocessedByTopic =
-            removeUndefinedFields(topicIndex);
-          willStoreByTopicExternally = true;
-        } catch (err) {
-          console.error("Error externalizing preprocessedByTopic:", err);
-        }
-      }
-    }
-
-    // Final write to main document (small index only if externalized)
-    await setDoc(ref, cleanedPayload, { merge: true });
-
-    if (willStoreBySectionExternally) {
-      console.log(
-        "[firestore] Stored preprocessedBySection externally in subcollection"
-      );
-    }
-    if (willStoreByTopicExternally) {
-      console.log(
-        "[firestore] Stored preprocessedByTopic externally in subcollection"
-      );
-    }
-  } catch (error) {
-    console.error("Error saving preprocessed data:", error);
-    throw new Error("Failed to save preprocessed data");
-  }
-}
+// Storage helpers for older clustering flows were removed — the dedicated
+// external clustering endpoint is no longer part of the pipeline.
 
 export async function saveNewsletterPlanStage(
   id: string,

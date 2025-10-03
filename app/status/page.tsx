@@ -10,6 +10,7 @@ interface EmailSendStatus {
   completedAt?: string;
   status:
     | "pending"
+    | "news-collecting"
     | "news-ready"
     | "ready-to-send"
     | "sending"
@@ -121,6 +122,8 @@ export default function StatusPage() {
         return "text-red-600 bg-red-50";
       case "pending":
         return "text-yellow-600 bg-yellow-50";
+      case "news-collecting":
+        return "text-amber-600 bg-amber-50";
       case "news-ready":
         return "text-blue-600 bg-blue-50";
       case "ready-to-send":
@@ -140,6 +143,8 @@ export default function StatusPage() {
         return "❌";
       case "pending":
         return "⏳";
+      case "news-collecting":
+        return "🛠️";
       case "news-ready":
         return "📰";
       case "ready-to-send":

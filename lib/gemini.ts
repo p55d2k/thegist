@@ -885,13 +885,10 @@ export const generateNewsletterPlan = async (
   articles: ProcessedNewsItem[],
   preClustered?: Map<string, ProcessedNewsItem[]>
 ): Promise<PlanResult> => {
-  // MANDATORY: Require preprocessing before Gemini can run
-  if (!preClustered || preClustered.size === 0) {
-    return buildFallbackPlan(
-      articles,
-      "Preprocessing required: Must run through /api/preprocess before Gemini can generate newsletter plan"
-    );
-  }
+  // Gemini accepts articles directly; if preClustered is not provided or
+  // empty, smartSamplePreClusteredArticles will fall back to using the full
+  // articles list. There is no separate preprocessing endpoint in the
+  // current pipeline.
 
   if (articles.length === 0) {
     return buildFallbackPlan(articles, "No articles available to summarise");

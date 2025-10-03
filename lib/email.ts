@@ -524,14 +524,15 @@ const finalizeFormattedArticles = (
 
 /**
  * Extract pre-clustered articles from topics metadata.
- * If the preprocessing step ran, articles will have section hints that indicate
- * they were already pre-clustered by obvious categories.
+ * If articles include clear section hints they will be treated as already
+ * assigned to a section. This is a lightweight heuristic; clustering is
+ * performed inline during news collection/formatting rather than via a
+ * separate preprocessing endpoint.
  */
 const extractPreClusteredArticles = (
   topics: TopicNewsGroup[]
 ): Map<string, ProcessedNewsItem[]> | undefined => {
-  // Check if topics have metadata indicating preprocessing
-  // For now, we'll extract pre-clustering by looking at article hints
+  // Check if topics have metadata indicating section hints
   const preClustered = new Map<string, ProcessedNewsItem[]>([
     ["commentaries", []],
     ["international", []],

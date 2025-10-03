@@ -117,17 +117,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // If preprocessed data is available in the job, use it
-  // This happens when the workflow includes /api/preprocess between /news and /gemini
-  const topicsToUse = job.preprocessedTopics
-    ? deserializeTopics(job.preprocessedTopics)
-    : topics;
+  // Use the topics saved by /api/news. Gemini will plan directly from the
+  // collected topics.
+  const topicsToUse = topics;
 
-  console.log(
-    `[gemini] Processing ${topicsToUse.length} topics (${
-      job.preprocessedTopics ? "preprocessed" : "original"
-    })`
-  );
+  console.log(`[gemini] Processing ${topicsToUse.length} topics`);
 
   const formatted = await formatArticles(topicsToUse);
 
