@@ -1,14 +1,27 @@
+// FOCUS: implement the task exactly as described. Do not add unrelated features or extra abstraction layers.
+// MODIFY ONLY: edit `app/api/gemini/route.ts`, add `app/api/gemini/_helpers.ts`, and update `lib/gemini.ts` only if strictly necessary. Keep other files unchanged unless required for small helpers.
+// IDEMPOTENT: ensure partial topic processing is safe to re-run and avoids duplicating stored data unless `force=true`.
+// RETURN SHAPE: Follow the specified JSON response format for success and errors.
+
 import { NextRequest, NextResponse } from "next/server";
 
 import {
   getNewsletterJob,
   getNextNewsletterJobNeedingGemini,
   saveNewsletterPlanStage,
-  type SerializedTopicNewsGroup,
 } from "@/lib/firestore";
-import { formatArticles, formatRawBody, formatBody } from "@/lib/email";
+import { formatArticles } from "@/lib/email";
 import { getDateString } from "@/lib/date";
 import { EMAIL_CONFIG } from "@/constants/email";
+import {
+  processGeminiTopic,
+  deriveProcessableTopics,
+  loadGeminiJobOrThrow,
+  deserializeTopics,
+  GeminiTopicProcessingError,
+  getNextTopicToProcess,
+} from "./_helpers";
+import type { GeminiTopicKey } from "./_helpers";
 
 const AUTH_HEADER = "authorization";
 
@@ -27,29 +40,37 @@ const ensureAuthorized = (request: NextRequest): NextResponse | null => {
   return null;
 };
 
-const deserializeTopics = (
-  serialized: SerializedTopicNewsGroup[]
-): TopicNewsGroup[] =>
-  serialized.map((group) => ({
-    topic: group.topic,
-    slug: group.slug,
-    publisher: group.publisher,
-    sectionHints: group.sectionHints ?? [],
-    items: group.items
-      .map((item) => ({
-        title: item.title,
-        description: item.description,
-        link: item.link,
-        pubDate: new Date(item.pubDate),
-        source: item.source,
-        publisher: item.publisher,
-        topic: item.topic,
-        slug: item.slug,
-        imageUrl: item.imageUrl,
-        sectionHints: item.sectionHints ?? [],
-      }))
-      .filter((item) => !Number.isNaN(item.pubDate.getTime())),
-  }));
+const parseBoolean = (value: unknown): boolean | undefined => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return undefined;
+};
+
+const extractBody = async (
+  request: NextRequest
+): Promise<Record<string, unknown>> => {
+  try {
+    const payload = await request.json();
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      return payload as Record<string, unknown>;
+    }
+  } catch (error) {
+    // ignore malformed or missing body
+  }
+  return {};
+};
 
 export async function POST(request: NextRequest) {
   const authResponse = ensureAuthorized(request);
@@ -57,22 +78,96 @@ export async function POST(request: NextRequest) {
     return authResponse;
   }
 
+  const searchParams = request.nextUrl.searchParams;
+  const body = await extractBody(request);
+
   let sendId: string | undefined;
-  let job: Awaited<ReturnType<typeof getNewsletterJob>> = null;
-
-  try {
-    const body = await request.json();
-    sendId = body?.sendId;
-  } catch (error) {
-    // treat missing body as undefined sendId; ignore parsing errors
-  }
-
-  if (sendId && typeof sendId !== "string") {
+  const bodySendId = body["sendId"];
+  if (typeof bodySendId === "string") {
+    sendId = bodySendId;
+  } else if (bodySendId !== undefined && bodySendId !== null) {
     return NextResponse.json(
       { error: "sendId must be a string" },
       { status: 400 }
     );
+  } else {
+    const querySendId = searchParams.get("sendId");
+    if (querySendId) {
+      sendId = querySendId;
+    }
   }
+
+  const topicQuery = searchParams.get("topic");
+  const topic = topicQuery
+    ? topicQuery
+    : typeof body["topic"] === "string"
+    ? (body["topic"] as string)
+    : undefined;
+
+  const limitParam = (() => {
+    const value = searchParams.get("limit");
+    if (value !== null) {
+      return value;
+    }
+    const bodyValue = body["limit"];
+    if (typeof bodyValue === "number" || typeof bodyValue === "string") {
+      return bodyValue;
+    }
+    return undefined;
+  })();
+
+  const extraParam = (() => {
+    const value = searchParams.get("extra");
+    if (value !== null) {
+      return value;
+    }
+    const bodyValue = body["extra"];
+    if (typeof bodyValue === "number" || typeof bodyValue === "string") {
+      return bodyValue;
+    }
+    return undefined;
+  })();
+
+  const forceParam = searchParams.get("force") ?? body["force"];
+
+  const force = parseBoolean(forceParam) ?? false;
+
+  if (topic) {
+    try {
+      const result = await processGeminiTopic({
+        sendId,
+        topic,
+        limit: limitParam,
+        extra: extraParam,
+        force,
+      });
+
+      return NextResponse.json(
+        {
+          message: result.message,
+          sendId: result.sendId,
+          topic: result.topic,
+          articlesUsed: result.articlesUsed,
+          candidatesFetched: result.candidatesFetched,
+        },
+        { status: 200 }
+      );
+    } catch (error) {
+      if (error instanceof GeminiTopicProcessingError) {
+        return NextResponse.json(
+          error.details
+            ? { error: error.message, details: error.details }
+            : { error: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
+  }
+
+  // Incremental processing
+  let job: Awaited<ReturnType<typeof getNewsletterJob>> = null;
+  let sendIdResolved: string;
 
   if (sendId) {
     job = await getNewsletterJob(sendId);
@@ -82,12 +177,13 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    sendIdResolved = sendId;
   } else {
     const nextJob = await getNextNewsletterJobNeedingGemini();
     if (!nextJob) {
       return new NextResponse(null, { status: 204 });
     }
-    sendId = nextJob.id;
+    sendIdResolved = nextJob.id;
     job = nextJob.job;
   }
 
@@ -103,7 +199,7 @@ export async function POST(request: NextRequest) {
 
   if (job.status === "success") {
     return NextResponse.json(
-      { message: "Job already completed", sendId },
+      { message: "Job already completed", sendId: sendIdResolved },
       { status: 200 }
     );
   }
@@ -117,29 +213,76 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Use the topics saved by /api/news. Gemini will plan directly from the
-  // collected topics.
-  const topicsToUse = topics;
+  const nextTopic = getNextTopicToProcess(job, topics);
 
-  console.log(`[gemini] Processing ${topicsToUse.length} topics`);
+  if (!nextTopic) {
+    // All topics processed, finalize the newsletter plan
+    const partials = (job as any).aiPartial || {};
+    const overall = partials.overall;
+    if (!overall) {
+      // Fallback, should not happen
+      const formatted = await formatArticles(topics);
+      await saveNewsletterPlanStage(sendIdResolved, {
+        plan: formatted.plan,
+        aiMetadata: formatted.aiMetadata,
+        summaryText: formatted.plan.summary,
+        emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+      });
+    } else {
+      const plan: GeminiNewsletterPlan = {
+        essentialReads: {
+          overview: overall.overview,
+          highlights: overall.highlights,
+        },
+        summary: overall.summary,
+        commentaries: partials.commentaries?.section || [],
+        international: partials.international?.section || [],
+        politics: partials.politics?.section || [],
+        business: partials.business?.section || [],
+        tech: partials.tech?.section || [],
+        sport: partials.sport?.section || [],
+        culture: partials.culture?.section || [],
+        wildCard: partials.wildCard?.section || [],
+        entertainment: partials.entertainment?.section || [],
+        science: partials.science?.section || [],
+        lifestyle: partials.lifestyle?.section || [],
+      };
+      await saveNewsletterPlanStage(sendIdResolved, {
+        plan,
+        aiMetadata: overall.aiMetadata,
+        summaryText: overall.summary,
+        emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+      });
+    }
+    return NextResponse.json(
+      {
+        message: "Newsletter plan generated",
+        sendId: sendIdResolved,
+        totalTopics: topics.length,
+        totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+        totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+      },
+      { status: 200 }
+    );
+  } else {
+    // Process the next unprocessed topic
+    const result = await processGeminiTopic({
+      sendId: sendIdResolved,
+      topic: nextTopic,
+      limit: limitParam,
+      extra: extraParam,
+      force,
+    });
 
-  const formatted = await formatArticles(topicsToUse);
-
-  await saveNewsletterPlanStage(sendId, {
-    plan: formatted.plan,
-    aiMetadata: formatted.aiMetadata,
-    summaryText: formatted.plan.summary,
-    emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
-  });
-
-  return NextResponse.json(
-    {
-      message: "Newsletter plan generated",
-      sendId,
-      totalTopics: formatted.totalTopics,
-      totalArticles: formatted.totalArticles,
-      totalPublishers: formatted.totalPublishers,
-    },
-    { status: 200 }
-  );
+    return NextResponse.json(
+      {
+        message: result.message,
+        sendId: result.sendId,
+        topic: result.topic,
+        articlesUsed: result.articlesUsed,
+        candidatesFetched: result.candidatesFetched,
+      },
+      { status: 200 }
+    );
+  }
 }

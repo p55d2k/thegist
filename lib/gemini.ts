@@ -32,6 +32,10 @@ type PlanResult = {
   metadata: PlanResultMetadata;
 };
 
+type PlanGenerationOptions = {
+  topicKey?: keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">;
+};
+
 const decodeHtmlEntities = (value: string): string => {
   const namedEntities: Record<string, string> = {
     amp: "&",
@@ -175,7 +179,8 @@ const createSectionItemFromArticle = (
 
 const parseGeminiPipePlan = (
   responseText: string,
-  records: GeminiArticleRecord[]
+  records: GeminiArticleRecord[],
+  options?: PlanGenerationOptions
 ): GeminiNewsletterPlan | null => {
   console.log("[gemini/parse] Raw response length:", responseText.length);
   console.log(
@@ -219,6 +224,9 @@ const parseGeminiPipePlan = (
     console.warn("[gemini/parse] No lines found after cleaning");
     return null;
   }
+
+  const targetTopic = options?.topicKey;
+  const isTopicMode = Boolean(targetTopic);
 
   const highlightItems: NewsletterSectionItem[] = [];
   const sectionItems: Record<
@@ -346,38 +354,53 @@ const parseGeminiPipePlan = (
   // Also require minimum total article count for a rich newsletter
   const hasMinimumTotal = totalArticles >= 16;
 
-  if (!hasCoverage || !hasMinimumTotal) {
-    console.warn("Gemini plan coverage insufficient", {
-      counts: {
-        commentaries: sectionItems.commentaries.length,
-        international: sectionItems.international.length,
-        politics: sectionItems.politics.length,
-        business: sectionItems.business.length,
-        tech: sectionItems.tech.length,
-        sport: sectionItems.sport.length,
-        culture: sectionItems.culture.length,
-        entertainment: sectionItems.entertainment.length,
-        science: sectionItems.science.length,
-        lifestyle: sectionItems.lifestyle.length,
-        wildCard: sectionItems.wildCard.length,
-        highlights: highlightItems.length,
-        total: totalArticles,
-      },
-      unknownIds: Array.from(unknownIds),
-      validation: {
-        commentariesOk:
-          sectionItems.commentaries.length >= 5 &&
-          sectionItems.commentaries.length <= SECTION_LIMITS.commentaries,
-        internationalOk: sectionItems.international.length >= 2,
-        politicsOk: sectionItems.politics.length >= 1,
-        businessOk: sectionItems.business.length >= 2,
-        techOk: sectionItems.tech.length >= 1,
-        wildCardOk: sectionItems.wildCard.length >= 1,
-        highlightsOk: highlightItems.length >= 4,
-        totalOk: hasMinimumTotal,
-      },
-    });
-    return null;
+  if (!isTopicMode) {
+    if (!hasCoverage || !hasMinimumTotal) {
+      console.warn("Gemini plan coverage insufficient", {
+        counts: {
+          commentaries: sectionItems.commentaries.length,
+          international: sectionItems.international.length,
+          politics: sectionItems.politics.length,
+          business: sectionItems.business.length,
+          tech: sectionItems.tech.length,
+          sport: sectionItems.sport.length,
+          culture: sectionItems.culture.length,
+          entertainment: sectionItems.entertainment.length,
+          science: sectionItems.science.length,
+          lifestyle: sectionItems.lifestyle.length,
+          wildCard: sectionItems.wildCard.length,
+          highlights: highlightItems.length,
+          total: totalArticles,
+        },
+        unknownIds: Array.from(unknownIds),
+        validation: {
+          commentariesOk:
+            sectionItems.commentaries.length >= 5 &&
+            sectionItems.commentaries.length <= SECTION_LIMITS.commentaries,
+          internationalOk: sectionItems.international.length >= 2,
+          politicsOk: sectionItems.politics.length >= 1,
+          businessOk: sectionItems.business.length >= 2,
+          techOk: sectionItems.tech.length >= 1,
+          wildCardOk: sectionItems.wildCard.length >= 1,
+          highlightsOk: highlightItems.length >= 4,
+          totalOk: hasMinimumTotal,
+        },
+      });
+      return null;
+    }
+  } else if (targetTopic) {
+    const topicCount = sectionItems[targetTopic].length;
+    if (topicCount === 0) {
+      console.warn("Gemini topic plan missing required section", {
+        topic: targetTopic,
+        counts: {
+          section: topicCount,
+          highlights: highlightItems.length,
+        },
+        unknownIds: Array.from(unknownIds),
+      });
+      return null;
+    }
   }
 
   console.log("✓ Gemini plan parsed successfully", {
@@ -566,11 +589,66 @@ const fillSectionFromPool = (
 
 const buildFallbackPlan = (
   articles: ProcessedNewsItem[],
-  fallbackReason: string
+  fallbackReason: string,
+  options?: PlanGenerationOptions
 ): PlanResult => {
+  const targetTopic = options?.topicKey;
+
   const sortedArticles = [...articles].sort(
     (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
   );
+
+  if (targetTopic) {
+    const pool = sortedArticles.map((article) =>
+      createSectionItemFromArticle(article, undefined)
+    );
+    const usedLinks = new Set<string>();
+    const sectionItems = fillSectionFromPool(targetTopic, pool, usedLinks);
+    const highlights = sectionItems.slice(0, Math.min(4, sectionItems.length));
+
+    const overview = sectionItems.length
+      ? `Fallback selection for ${targetTopic} featuring ${
+          sectionItems.length
+        } article${sectionItems.length === 1 ? "" : "s"}.`
+      : `No suitable articles available for ${targetTopic}.`;
+
+    const summary = sectionItems.length
+      ? `Curated ${sectionItems.length} ${targetTopic} article${
+          sectionItems.length === 1 ? "" : "s"
+        } without Gemini assistance.`
+      : `Unable to assemble a ${targetTopic} section without Gemini.`;
+
+    const plan: GeminiNewsletterPlan = {
+      essentialReads: {
+        overview,
+        highlights,
+      },
+      commentaries: [],
+      international: [],
+      politics: [],
+      business: [],
+      tech: [],
+      sport: [],
+      culture: [],
+      wildCard: [],
+      entertainment: [],
+      science: [],
+      lifestyle: [],
+      summary,
+    };
+
+    plan[targetTopic] = sectionItems;
+
+    return {
+      plan,
+      metadata: {
+        model: "heuristic",
+        usedFallback: true,
+        fallbackReason,
+      },
+    };
+  }
+
   const pool = sortedArticles.map((article) =>
     createSectionItemFromArticle(article, undefined)
   );
@@ -728,11 +806,6 @@ const buildPreviewPlan = (
   };
 };
 
-export const generateNewsletterPlanFallback = (
-  articles: ProcessedNewsItem[],
-  fallbackReason = "Fallback planner invoked"
-): PlanResult => buildFallbackPlan(articles, fallbackReason);
-
 export const generateNewsletterPlanPreview = (
   articles: ProcessedNewsItem[],
   fallbackReason = "Preview mode without Gemini"
@@ -743,7 +816,8 @@ const makeFastGeminiCall = async (
   model: any,
   prompt: string,
   articleRecords: GeminiArticleRecord[],
-  timeoutMs: number
+  timeoutMs: number,
+  options?: PlanGenerationOptions
 ): Promise<{ rawText: string; parsed: GeminiNewsletterPlan }> => {
   const calls = Array.from({ length: PARALLEL_CALL_COUNT }, (_, i) =>
     model
@@ -758,7 +832,7 @@ const makeFastGeminiCall = async (
     calls.map((p) =>
       p.then(async ({ result }: { result: any }) => {
         const rawText = result.response.text();
-        const parsed = parseGeminiPipePlan(rawText, articleRecords);
+        const parsed = parseGeminiPipePlan(rawText, articleRecords, options);
         if (!parsed) throw new Error("Invalid plan");
         return { rawText, parsed };
       })
@@ -770,7 +844,8 @@ const makeFastGeminiCall = async (
 const makeStreamingGeminiCall = async (
   model: any,
   prompt: string,
-  articleRecords: GeminiArticleRecord[]
+  articleRecords: GeminiArticleRecord[],
+  options?: PlanGenerationOptions
 ): Promise<{ rawText: string; parsed: GeminiNewsletterPlan }> => {
   const result = await model.generateContentStream({
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -790,7 +865,7 @@ const makeStreamingGeminiCall = async (
       rawText.includes("commentaries|")
     ) {
       attemptedParse = true;
-      const parsed = parseGeminiPipePlan(rawText, articleRecords);
+      const parsed = parseGeminiPipePlan(rawText, articleRecords, options);
       if (parsed) {
         return { rawText, parsed };
       }
@@ -798,7 +873,7 @@ const makeStreamingGeminiCall = async (
   }
 
   // Final parse attempt after stream completes
-  const parsed = parseGeminiPipePlan(rawText, articleRecords);
+  const parsed = parseGeminiPipePlan(rawText, articleRecords, options);
   if (!parsed) {
     throw new Error("Invalid plan after streaming completed");
   }
@@ -883,7 +958,8 @@ const smartSamplePreClusteredArticles = (
 
 export const generateNewsletterPlan = async (
   articles: ProcessedNewsItem[],
-  preClustered?: Map<string, ProcessedNewsItem[]>
+  preClustered?: Map<string, ProcessedNewsItem[]>,
+  options?: PlanGenerationOptions
 ): Promise<PlanResult> => {
   // Gemini accepts articles directly; if preClustered is not provided or
   // empty, smartSamplePreClusteredArticles will fall back to using the full
@@ -891,14 +967,19 @@ export const generateNewsletterPlan = async (
   // current pipeline.
 
   if (articles.length === 0) {
-    return buildFallbackPlan(articles, "No articles available to summarise");
+    return buildFallbackPlan(
+      articles,
+      "No articles available to summarise",
+      options
+    );
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return buildFallbackPlan(
       articles,
-      "Missing GEMINI_API_KEY environment variable"
+      "Missing GEMINI_API_KEY environment variable",
+      options
     );
   }
 
@@ -965,7 +1046,13 @@ export const generateNewsletterPlan = async (
     try {
       // Try parallel racing calls first (fastest approach)
       const parallelResult = await withTimeout(
-        makeFastGeminiCall(model, prompt, articleRecords, GEMINI_TIMEOUT_MS),
+        makeFastGeminiCall(
+          model,
+          prompt,
+          articleRecords,
+          GEMINI_TIMEOUT_MS,
+          options
+        ),
         GEMINI_TIMEOUT_MS
       );
       rawText = parallelResult.rawText;
@@ -980,7 +1067,7 @@ export const generateNewsletterPlan = async (
       // Fallback to streaming approach
       try {
         const streamingResult = await withTimeout(
-          makeStreamingGeminiCall(model, prompt, articleRecords),
+          makeStreamingGeminiCall(model, prompt, articleRecords, options),
           GEMINI_TIMEOUT_MS
         );
         rawText = streamingResult.rawText;
@@ -1012,7 +1099,8 @@ export const generateNewsletterPlan = async (
       );
       return buildFallbackPlan(
         articles,
-        "Gemini response missing required sections or failed validation"
+        "Gemini response missing required sections or failed validation",
+        options
       );
     }
 
@@ -1034,7 +1122,8 @@ export const generateNewsletterPlan = async (
     });
     return buildFallbackPlan(
       articles,
-      error instanceof Error ? error.message : "Unknown Gemini error"
+      error instanceof Error ? error.message : "Unknown Gemini error",
+      options
     );
   }
 };

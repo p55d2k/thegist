@@ -4,10 +4,12 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 
 ## Features
 
-- **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business, tech, sport, culture, and a wildcard piece).
+- **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business, tech, sport, culture, entertainment, science, lifestyle, and a wildcard piece).
+- **Incremental Topic Processing**: Processes one topic per API call for better fault tolerance and progress tracking.
+- **Idempotent Partial Storage**: Newsletter plans are stored incrementally, allowing safe re-processing of individual topics.
 - **Multi-Publisher Aggregation**: Pulls commentary feeds from ChannelNewsAsia, CNN, The Guardian, BBC, NPR, and Al Jazeera.
 - **Smart Filtering**: Keeps only commentary articles (based on per-feed rules) from the last 24 hours, limits to the 10 most recent articles per RSS feed, and drops duplicates across sources.
-- **Section-Based Organization**: Articles are categorized into Commentaries (5-7 pieces), International (2-3), Politics (2-3), Business (2-3), Tech (2-3), Sport (2-3), Culture (2-3), and one Wildcard.
+- **Section-Based Organization**: Articles are categorized into Commentaries (5-7 pieces), International (2-3), Politics (2-3), Business (2-3), Tech (2-3), Sport (2-3), Culture (2-3), Entertainment (1-2), Science (1-2), Lifestyle (1-2), and one Wildcard.
 - **Email Delivery**: Sends a responsive HTML newsletter with optional imagery plus a plaintext fallback.
 - **Email Preview**: Preview the newsletter HTML and plaintext content before sending via a dedicated page.
 - **Background Processing**: Newsletter generation and sending happens asynchronously to avoid timeouts.
@@ -22,12 +24,28 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 
 - **Framework**: Next.js 14 with TypeScript
 - **AI**: Google Gemini 2.5 Flash Lite for newsletter planning and curation
-- **Database**: Firebase/Firestore for subscriber management
+- **Database**: Firebase/Firestore for subscriber management and partial plan storage
 - **Styling**: Tailwind CSS with Framer Motion animations
 - **Email**: Nodemailer with Gmail SMTP
 - **RSS Parsing**: xml2js
 - **HTTP Client**: Axios
+- **Testing**: Vitest with comprehensive API endpoint testing
 - **Runtime**: Bun (recommended for development)
+- **Architecture**: Modular API design with topic-based processing and orchestration
+
+## Testing
+
+Run the test suite:
+
+```bash
+bun run test
+```
+
+The test suite includes:
+
+- **News helpers**: Article deduplication and summarization tests
+- **Gemini API**: Topic-based processing, incremental processing, and partial storage tests
+- **Mocked dependencies**: Firebase Firestore and Gemini AI API mocks for reliable testing
 
 ## Installation
 
@@ -196,9 +214,40 @@ Handles newsletter subscription requests. Validates email format and stores acti
 
 #### POST `/api/gemini`
 
-Formats a staged newsletter job via Gemini. Requires the `NEWSLETTER_JOB_TOKEN` bearer token. Provide `{ "sendId": "..." }` to target a specific job, or omit the body to automatically claim the oldest `news-ready` job. Saves rendered HTML, plain text, and AI metadata back to Firestore.
+Formats a staged newsletter job via Gemini. Requires the `NEWSLETTER_JOB_TOKEN` bearer token.
 
-**Response:**
+The `/api/gemini` endpoint now processes newsletter topics incrementally. On each call without a specific topic, it processes one topic at a time, prioritizing jobs with partial Gemini work. Once all topics for a job are processed, it finalizes the newsletter plan and sets the job status to "ready-to-send".
+
+**Query Parameters:**
+
+- `topic` (optional): Process only this topic (commentaries, international, politics, business, tech, sport, culture, entertainment, science, lifestyle, wildCard)
+- `limit` (optional): Max articles per topic (default: uses SECTION_LIMITS)
+- `extra` (optional): Additional candidate articles from other topics (default: 5)
+- `force` (optional): Force re-processing of already processed topics
+
+**Request Body:**
+
+```json
+{
+  "sendId": "optional-job-id"
+}
+```
+
+**Response (Incremental Processing - Default):**
+
+When no `topic` is specified, the endpoint processes the next unprocessed topic for the job. If all topics are processed, it finalizes the newsletter plan.
+
+```json
+{
+  "message": "Topic processed",
+  "sendId": "a1b2c3d4",
+  "topic": "commentaries",
+  "articlesUsed": 5,
+  "candidatesFetched": 10
+}
+```
+
+Or when complete:
 
 ```json
 {
@@ -209,6 +258,20 @@ Formats a staged newsletter job via Gemini. Requires the `NEWSLETTER_JOB_TOKEN` 
   "totalPublishers": 6
 }
 ```
+
+**Response (Topic Processing):**
+
+```json
+{
+  "message": "Topic processed",
+  "sendId": "a1b2c3d4",
+  "topic": "commentaries",
+  "articlesUsed": 5,
+  "candidatesFetched": 10
+}
+```
+
+Provide `{ "sendId": "..." }` to target a specific job, or omit the body to automatically claim the oldest `news-ready` job. Saves rendered HTML, plain text, and AI metadata back to Firestore.
 
 #### POST `/api/send-newsletter`
 
@@ -301,11 +364,19 @@ Tests different Gemini configuration options.
 ### Automation with cron-job.org
 
 1. **Generate a shared token**: Set `NEWSLETTER_JOB_TOKEN` in your deployment environment and keep a copy for cron-job.org.
-2. **Create four HTTP jobs** (all `POST` except the first):
+2. **Create jobs** (all `POST` except the first):
 
-- `GET https://<your-domain>/api/news`
-- `POST https://<your-domain>/api/gemini`
-- `POST https://<your-domain>/api/send-newsletter`
+- `GET https://<your-domain>/api/news` - Fetch and aggregate news
+- `POST https://<your-domain>/api/gemini` - Process one topic incrementally (repeat until plan is generated)
+- `POST https://<your-domain>/api/send-newsletter` - Send newsletter batches
+
+**Alternative granular approach** (for better performance):
+
+- `GET https://<your-domain>/api/news` - Fetch news
+- `POST https://<your-domain>/api/gemini?topic=commentaries` - Process commentaries
+- `POST https://<your-domain>/api/gemini?topic=international` - Process international
+- ... (one job per topic)
+- `POST https://<your-domain>/api/send-newsletter` - Send newsletter
 
 3. **Add the authorization header** to each job:
 
@@ -314,15 +385,15 @@ Tests different Gemini configuration options.
    ```
 
 4. **Schedule cadence**:
-   - News fetch every hour (or more frequently if desired).
 
-- Gemini plan 2–3 minutes after the news fetch to allow Firestore writes to settle.
-- Send step 2–3 minutes after Gemini; set it to repeat every few minutes so retries happen automatically if a batch fails.
+   - News fetch every hour (or more frequently if desired).
+   - Gemini processing 2–3 minutes after news fetch (repeat calls to `/api/gemini` without parameters until the plan is finalized).
+   - Send step 2–3 minutes after Gemini completion; set it to repeat every few minutes for automatic retries on batch failures.
 
 5. **Timeouts & retries**: Set request timeout to ≥30 seconds and enable retries on failure so transient RSS or SMTP outages are retried automatically.
 6. **Monitoring**: Cron-job.org provides response logs; pair this with the `/status` dashboard or endpoint to confirm job completion.
 
-The pipeline is idempotent: `/api/gemini` and `/api/send-newsletter` automatically claim the oldest eligible job, so repeated cron runs are safe.
+The pipeline is idempotent: all endpoints automatically handle re-runs safely. The incremental topic processing allows for better fault tolerance and progress tracking.
 
 ### Testing the pipeline with curl
 
@@ -339,12 +410,26 @@ curl --request GET "http://localhost:3000/api/news" \
   --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
-Note: preprocessing was removed; call `/api/gemini` after `/api/news` to generate a plan. In many deployments you will call `/api/news` repeatedly (or on a schedule) to accumulate batches; `/api/gemini` then claims the oldest eligible job and generates the newsletter plan.
-
-Generate the newsletter plan (omit the body to auto-claim the oldest job, or pass a specific `sendId`):
+Generate the full newsletter plan (omit the body to auto-claim the oldest job, or pass a specific `sendId`):
 
 ```bash
 curl --request POST "http://localhost:3000/api/gemini" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data '{"sendId": "YOUR_SEND_ID"}'
+```
+
+**Process individual topics** (for testing or granular control):
+
+```bash
+# Process commentaries only
+curl --request POST "http://localhost:3000/api/gemini?topic=commentaries" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data '{"sendId": "YOUR_SEND_ID"}'
+
+# Process with custom limits
+curl --request POST "http://localhost:3000/api/gemini?topic=business&limit=5&extra=3" \
   --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
   --header "Content-Type: application/json" \
   --data '{"sendId": "YOUR_SEND_ID"}'

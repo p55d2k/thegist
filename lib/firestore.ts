@@ -413,10 +413,32 @@ export async function getNextNewsletterJobNeedingGemini(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
-  // Gemini operates directly on jobs whose status is `news-ready`
-  // (the results of `/api/news`).
-  const [result] = await queryNewsletterJobs(["news-ready"]);
-  return result ?? null;
+  const jobsRef = collection(db, SEND_COLLECTION);
+  const jobsQuery = query(
+    jobsRef,
+    where("status", "==", "news-ready"),
+    orderBy("startedAt", "asc")
+  );
+  const snapshot = await getDocs(jobsQuery);
+
+  const jobs: Array<{ id: string; job: NewsletterJob }> = [];
+  snapshot.forEach((docSnapshot) => {
+    jobs.push({
+      id: docSnapshot.id,
+      job: docSnapshot.data() as NewsletterJob,
+    });
+  });
+
+  // Sort to prioritize jobs with aiPartial
+  jobs.sort((a, b) => {
+    const aHasPartial = !!(a.job as any).aiPartial;
+    const bHasPartial = !!(b.job as any).aiPartial;
+    if (aHasPartial && !bHasPartial) return -1;
+    if (!aHasPartial && bHasPartial) return 1;
+    return 0; // keep orderBy startedAt
+  });
+
+  return jobs[0] ?? null;
 }
 
 export async function getNextNewsletterJobForSending(): Promise<{
