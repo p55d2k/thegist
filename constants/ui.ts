@@ -4,7 +4,7 @@ export const HOME_CONTENT = {
     badge: "AI READS IT • YOU GET THE GIST",
     title: "News for people who don't read the news.",
     description:
-      "We scan dozens of sources every day and tells you what actually matters. No clickbait. No doom-scrolling. Just the important stuff in five minutes.",
+      "We scan over 100 sources every day and tells you what actually matters. No clickbait. No doom-scrolling. Just the important stuff in five minutes.",
   },
 
   howItWorks: [
