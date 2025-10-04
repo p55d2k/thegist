@@ -447,7 +447,7 @@ export async function getNextNewsletterJobForSending(): Promise<{
   job: NewsletterJob;
 } | null> {
   // Only return jobs that are ready to send. Previously this included
-  // "sending" which could cause multiple cron workers to pick the same job
+  // "sending" which could cause multiple automation workers to pick the same job
   // and produce overlapping work. A proper lease/claim mechanism would be
   // more robust, but restricting to "ready-to-send" reduces the risk of
   // concurrent workers processing the same job.

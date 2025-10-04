@@ -411,33 +411,51 @@ Checks the delivery status of newsletter emails. Can retrieve recent sends or ch
 }
 ```
 
-### Automation with cron-job.org
+### Automation with GitHub Actions
 
-1. **Generate a shared token**: Set `NEWSLETTER_JOB_TOKEN` in your deployment environment and keep a copy for cron-job.org.
-2. **Create jobs**:
+Newsletter delivery is orchestrated by the `Send Daily Newsletter` workflow in `.github/workflows/newsletter.yml`. It runs every day at **06:30 UTC** and can also be triggered manually from the GitHub Actions tab.
 
-- `POST https://<your-domain>/api/start-newsletter` - Start a new newsletter job (run once daily at your desired send time)
-- `GET https://<your-domain>/api/news?persist=true&sources=5` - Continue news collection (run every 5 minutes)
-- `POST https://<your-domain>/api/llm` - Process topics incrementally (run every 5 minutes)
-- `POST https://<your-domain>/api/send-newsletter` - Send newsletter batches (run every 5 minutes)
+#### Required secrets
 
-3. **Add the authorization header** to each job:
+Configure these repository secrets before enabling the scheduler:
 
-   ```text
-   Authorization: Bearer YOUR_SHARED_TOKEN
-   ```
+- `NEWSLETTER_API_BASE_URL` – Fully qualified base URL for the deployed app (for example, `https://thegist.vercel.app`).
+- `NEWSLETTER_JOB_TOKEN` – Shared bearer token used to authenticate requests to protected newsletter endpoints.
 
-4. **Schedule cadence**:
+#### Optional repository variables
 
-- **Start Newsletter**: Daily at your preferred send time (e.g., 8:00 AM)
-- **News Collection**: Every 5 minutes (continues the active job until all sources processed)
-- **LLM Processing**: Every 5 minutes (processes topics until plan is complete)
-- **Email Sending**: Every 5 minutes (sends batches until all emails delivered)
+You can fine-tune the automation loop by adding repository variables. Leave them unset to fall back to script defaults.
 
-5. **Timeouts & retries**: Set request timeout to ≥60 seconds for news collection, ≥120 seconds for LLM, and ≥60 seconds for sending. Enable retries on failure.
-6. **Monitoring**: Use `/api/status` endpoint or the status dashboard to monitor progress.
+- `NEWSLETTER_SOURCES_PER_RUN` – RSS sources processed per `/api/news` call (default: 10).
+- `NEWSLETTER_MAX_NEWS_RUNS` – Safety cap for news collection iterations (default: 80).
+- `NEWSLETTER_MAX_LLM_RUNS` – Safety cap for LLM processing iterations (default: 150).
+- `NEWSLETTER_MAX_SEND_RUNS` – Safety cap for email sending iterations (default: 50).
+- `NEWSLETTER_SEND_MAX_BATCHES` – Email batches processed per `/api/send-newsletter` call (default: 10).
+- `NEWSLETTER_REQUEST_TIMEOUT_MS`, `NEWSLETTER_NEWS_DELAY_MS`, `NEWSLETTER_LLM_DELAY_MS`, `NEWSLETTER_SEND_DELAY_MS`, `NEWSLETTER_STATUS_DELAY_MS` – Request timeout and polling delays in milliseconds.
+- `NEWSLETTER_SEND_ID` (workflow input) – Resume an existing job when triggering the workflow manually.
 
-The pipeline uses job state management to ensure each phase only runs when appropriate. The news collection and LLM processing are incremental, allowing for fault tolerance and resumability.
+#### What the workflow does
+
+- Checks out the repository and installs dependencies with Node.js 20.
+- Executes `node scripts/send-newsletter.js`, which:
+  - Starts or resumes a newsletter job.
+  - Collects news batches until RSS ingestion completes.
+  - Drives `/api/llm` until the newsletter plan is finished.
+  - Sends email batches until all recipients are processed.
+  - Verifies the final delivery status via `/api/status` and exits non-zero if anything fails.
+
+#### Manual and local execution
+
+- **Manual GitHub run** – Use the "Run workflow" button and optionally supply an existing `sendId`.
+- **Local testing** – Run the script with Node.js 20+ after exporting the required environment variables:
+
+  ```bash
+  export NEWSLETTER_API_BASE_URL="https://your-production-domain"
+  export NEWSLETTER_JOB_TOKEN="super-secret-token"
+  node scripts/send-newsletter.js
+  ```
+
+The script logs each phase, retries transient errors, and exits with a non-zero status if the newsletter fails to send.
 
 ### Testing the pipeline with curl
 

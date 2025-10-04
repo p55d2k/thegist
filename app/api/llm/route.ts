@@ -525,101 +525,171 @@ export async function POST(request: NextRequest) {
 
   if (!nextTopic) {
     // All topics processed, finalize the newsletter plan
-    const partials = (job as any).aiPartial || {};
+    try {
+      const partials = (job as any).aiPartial || {};
 
-    let plan: LLMNewsletterPlan = {
-      essentialReads: {
-        overview:
-          "Today's essential reads cover the most important stories from across the news landscape.",
-        highlights: [],
-      },
-      summary: "A curated selection of today's most significant news stories.",
-      commentaries: partials.commentaries?.section || [],
-      international: partials.international?.section || [],
-      politics: partials.politics?.section || [],
-      business: partials.business?.section || [],
-      tech: partials.tech?.section || [],
-      sport: partials.sport?.section || [],
-      culture: partials.culture?.section || [],
-      wildCard: partials.wildCard?.section || [],
-      entertainment: partials.entertainment?.section || [],
-      science: partials.science?.section || [],
-      lifestyle: partials.lifestyle?.section || [],
-    };
+      let plan: LLMNewsletterPlan = {
+        essentialReads: {
+          overview:
+            "Today's essential reads cover the most important stories from across the news landscape.",
+          highlights: [],
+        },
+        summary:
+          "A curated selection of today's most significant news stories.",
+        commentaries: partials.commentaries?.section || [],
+        international: partials.international?.section || [],
+        politics: partials.politics?.section || [],
+        business: partials.business?.section || [],
+        tech: partials.tech?.section || [],
+        sport: partials.sport?.section || [],
+        culture: partials.culture?.section || [],
+        wildCard: partials.wildCard?.section || [],
+        entertainment: partials.entertainment?.section || [],
+        science: partials.science?.section || [],
+        lifestyle: partials.lifestyle?.section || [],
+      };
 
-    const { plan: dedupedPlan, removed } = deduplicatePlanSections(plan);
-    if (removed.length > 0) {
-      console.log("[llm/finalize] Removed duplicate stories", {
-        removed: removed.slice(0, 5),
-        total: removed.length,
-      });
-    }
-    plan = dedupedPlan;
+      const { plan: dedupedPlan, removed } = deduplicatePlanSections(plan);
+      if (removed.length > 0) {
+        console.log("[llm/finalize] Removed duplicate stories", {
+          removed: removed.slice(0, 5),
+          total: removed.length,
+        });
+      }
+      plan = dedupedPlan;
 
-    // Generate final overview/summary/highlights AFTER deduplication
-    const allSelectedArticles: NewsletterSectionItem[] = [
-      ...plan.commentaries,
-      ...plan.international,
-      ...plan.politics,
-      ...plan.business,
-      ...plan.tech,
-      ...plan.sport,
-      ...plan.culture,
-      ...plan.wildCard,
-      ...plan.entertainment,
-      ...plan.science,
-      ...plan.lifestyle,
-    ];
+      // Generate final overview/summary/highlights AFTER deduplication
+      const allSelectedArticles: NewsletterSectionItem[] = [
+        ...plan.commentaries,
+        ...plan.international,
+        ...plan.politics,
+        ...plan.business,
+        ...plan.tech,
+        ...plan.sport,
+        ...plan.culture,
+        ...plan.wildCard,
+        ...plan.entertainment,
+        ...plan.science,
+        ...plan.lifestyle,
+      ];
 
-    const finalOverview = await generateLLMFinalOverview(
-      allSelectedArticles,
-      plan
-    );
-
-    // Update plan with final overview
-    plan.essentialReads.overview = finalOverview.overview;
-    plan.essentialReads.highlights = finalOverview.highlights;
-    plan.summary = finalOverview.summary;
-
-    const highlightLinks = new Set(
-      finalOverview.highlights.map((item) => normalizeArticleUrl(item.link))
-    );
-
-    const filterSection = (
-      items: NewsletterSectionItem[]
-    ): NewsletterSectionItem[] =>
-      items.filter(
-        (item) => !highlightLinks.has(normalizeArticleUrl(item.link))
+      const finalOverview = await generateLLMFinalOverview(
+        allSelectedArticles,
+        plan
       );
 
-    plan.commentaries = filterSection(plan.commentaries);
-    plan.international = filterSection(plan.international);
-    plan.politics = filterSection(plan.politics);
-    plan.business = filterSection(plan.business);
-    plan.tech = filterSection(plan.tech);
-    plan.sport = filterSection(plan.sport);
-    plan.culture = filterSection(plan.culture);
-    plan.entertainment = filterSection(plan.entertainment);
-    plan.science = filterSection(plan.science);
-    plan.lifestyle = filterSection(plan.lifestyle);
+      // Update plan with final overview
+      plan.essentialReads.overview = finalOverview.overview;
+      plan.essentialReads.highlights = finalOverview.highlights;
+      plan.summary = finalOverview.summary;
 
-    await saveNewsletterPlanStage(sendIdResolved, {
-      plan,
-      aiMetadata: finalOverview.aiMetadata,
-      summaryText: finalOverview.summary,
-      emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
-    });
+      const highlightLinks = new Set(
+        finalOverview.highlights.map((item) => normalizeArticleUrl(item.link))
+      );
 
-    return NextResponse.json(
-      {
-        message: "Newsletter plan generated",
+      const filterSection = (
+        items: NewsletterSectionItem[]
+      ): NewsletterSectionItem[] =>
+        items.filter(
+          (item) => !highlightLinks.has(normalizeArticleUrl(item.link))
+        );
+
+      plan.commentaries = filterSection(plan.commentaries);
+      plan.international = filterSection(plan.international);
+      plan.politics = filterSection(plan.politics);
+      plan.business = filterSection(plan.business);
+      plan.tech = filterSection(plan.tech);
+      plan.sport = filterSection(plan.sport);
+      plan.culture = filterSection(plan.culture);
+      plan.entertainment = filterSection(plan.entertainment);
+      plan.science = filterSection(plan.science);
+      plan.lifestyle = filterSection(plan.lifestyle);
+
+      await saveNewsletterPlanStage(sendIdResolved, {
+        plan,
+        aiMetadata: finalOverview.aiMetadata,
+        summaryText: finalOverview.summary,
+        emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+      });
+
+      return NextResponse.json(
+        {
+          message: "Newsletter plan generated",
+          sendId: sendIdResolved,
+          totalTopics: topics.length,
+          totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+          totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+        },
+        { status: 200 }
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[llm/finalize] Finalization failed, using fallback plan", {
+        error: message,
         sendId: sendIdResolved,
-        totalTopics: topics.length,
-        totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
-        totalPublishers: new Set(topics.map((t) => t.publisher)).size,
-      },
-      { status: 200 }
-    );
+      });
+
+      // Fallback: create a basic plan from partials without LLM calls
+      const partials = (job as any).aiPartial || {};
+      const fallbackPlan: LLMNewsletterPlan = {
+        essentialReads: {
+          overview:
+            "Today's essential reads cover the most important stories from across the news landscape.",
+          highlights: [],
+        },
+        summary: `Curated newsletter with ${
+          Object.keys(partials).length
+        } processed topics.`,
+        commentaries: partials.commentaries?.section || [],
+        international: partials.international?.section || [],
+        politics: partials.politics?.section || [],
+        business: partials.business?.section || [],
+        tech: partials.tech?.section || [],
+        sport: partials.sport?.section || [],
+        culture: partials.culture?.section || [],
+        wildCard: partials.wildCard?.section || [],
+        entertainment: partials.entertainment?.section || [],
+        science: partials.science?.section || [],
+        lifestyle: partials.lifestyle?.section || [],
+      };
+
+      // Select some highlights from the processed sections
+      const allArticles = [
+        ...fallbackPlan.commentaries,
+        ...fallbackPlan.international,
+        ...fallbackPlan.politics,
+        ...fallbackPlan.business,
+        ...fallbackPlan.tech,
+        ...fallbackPlan.sport,
+        ...fallbackPlan.culture,
+        ...fallbackPlan.entertainment,
+        ...fallbackPlan.science,
+        ...fallbackPlan.lifestyle,
+      ];
+      fallbackPlan.essentialReads.highlights = allArticles.slice(0, 4);
+
+      await saveNewsletterPlanStage(sendIdResolved, {
+        plan: fallbackPlan,
+        aiMetadata: {
+          model: "fallback",
+          usedFallback: true,
+          fallbackReason: `Finalization failed: ${message}`,
+        },
+        summaryText: fallbackPlan.summary,
+        emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+      });
+
+      return NextResponse.json(
+        {
+          message: "Newsletter plan generated (fallback)",
+          sendId: sendIdResolved,
+          totalTopics: topics.length,
+          totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+          totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+        },
+        { status: 200 }
+      );
+    }
   } else {
     // Process the next unprocessed topic
     const result = await processTopicWithLLM({

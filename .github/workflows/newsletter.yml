@@ -1,0 +1,50 @@
+name: Send Daily Newsletter
+
+on:
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      sendId:
+        description: "Optional existing newsletter job ID to resume"
+        required: false
+        type: string
+
+concurrency:
+  group: newsletter-automation
+  cancel-in-progress: false
+
+jobs:
+  run-newsletter:
+    name: Execute newsletter pipeline
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NEWSLETTER_API_BASE_URL: ${{ secrets.NEWSLETTER_API_BASE_URL }}
+      NEWSLETTER_JOB_TOKEN: ${{ secrets.NEWSLETTER_JOB_TOKEN }}
+      NEWSLETTER_SEND_ID: ${{ github.event.inputs.sendId }}
+      NEWSLETTER_SOURCES_PER_RUN: ${{ vars.NEWSLETTER_SOURCES_PER_RUN }}
+      NEWSLETTER_MAX_NEWS_RUNS: ${{ vars.NEWSLETTER_MAX_NEWS_RUNS }}
+      NEWSLETTER_MAX_LLM_RUNS: ${{ vars.NEWSLETTER_MAX_LLM_RUNS }}
+      NEWSLETTER_MAX_SEND_RUNS: ${{ vars.NEWSLETTER_MAX_SEND_RUNS }}
+      NEWSLETTER_SEND_MAX_BATCHES: ${{ vars.NEWSLETTER_SEND_MAX_BATCHES }}
+      NEWSLETTER_REQUEST_TIMEOUT_MS: ${{ vars.NEWSLETTER_REQUEST_TIMEOUT_MS }}
+      NEWSLETTER_NEWS_DELAY_MS: ${{ vars.NEWSLETTER_NEWS_DELAY_MS }}
+      NEWSLETTER_LLM_DELAY_MS: ${{ vars.NEWSLETTER_LLM_DELAY_MS }}
+      NEWSLETTER_SEND_DELAY_MS: ${{ vars.NEWSLETTER_SEND_DELAY_MS }}
+      NEWSLETTER_STATUS_DELAY_MS: ${{ vars.NEWSLETTER_STATUS_DELAY_MS }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run newsletter automation script
+        run: bun run scripts/send-newsletter.js
