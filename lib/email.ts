@@ -51,10 +51,6 @@ const SECTION_COPY: Record<
     title: "Culture",
     subtitle: "What's trending, who's talking, and why it slaps.",
   },
-  wildCard: {
-    title: "Wildcard",
-    subtitle: "The story you didn't see coming but can't stop thinking about.",
-  },
   entertainment: {
     title: "Entertainment",
     subtitle: "Celebrity buzz, blockbuster news, and pop culture moments.",
@@ -66,6 +62,10 @@ const SECTION_COPY: Record<
   lifestyle: {
     title: "Lifestyle",
     subtitle: "Health tips, travel hacks, and the good life.",
+  },
+  wildCard: {
+    title: "Wildcard",
+    subtitle: "The story you didn't see coming but can't stop thinking about.",
   },
 };
 
