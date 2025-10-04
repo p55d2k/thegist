@@ -4,7 +4,7 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 
 ## Features
 
-- **AI-Powered Curation**: Uses Google Gemini AI to intelligently organize articles into thematic sections (commentaries, international news, politics, business, tech, sport, culture, entertainment, science, lifestyle, and a wildcard piece).
+- **AI-Powered Curation**: Uses Groq's Gemma 2 9B Instruct model to intelligently organize articles into thematic sections (commentaries, international news, politics, business, tech, sport, culture, entertainment, science, lifestyle, and a wildcard piece).
 - **Incremental Topic Processing**: Processes one topic per API call for better fault tolerance and progress tracking.
 - **Idempotent Partial Storage**: Newsletter plans are stored incrementally, allowing safe re-processing of individual topics.
 - **Multi-Publisher Aggregation**: Pulls commentary feeds from ChannelNewsAsia, CNN, The Guardian, BBC, NPR, and Al Jazeera.
@@ -23,7 +23,7 @@ A Next.js-based newsletter application that aggregates, deduplicates, and emails
 ## Tech Stack
 
 - **Framework**: Next.js 14 with TypeScript
-- **AI**: Google Gemini 2.5 Flash Lite for newsletter planning and curation
+- **AI**: Groq openai/gpt-oss-20b (via Groq SDK) for newsletter planning and curation
 - **Database**: Firebase/Firestore for subscriber management and partial plan storage
 - **Styling**: Tailwind CSS with Framer Motion animations
 - **Email**: Nodemailer with Gmail SMTP
@@ -44,16 +44,26 @@ bun run test
 The test suite includes:
 
 - **News helpers**: Article deduplication and summarization tests
-- **Gemini API**: Topic-based processing, incremental processing, and partial storage tests
-- **Mocked dependencies**: Firebase Firestore and Gemini AI API mocks for reliable testing
+- **LLM API**: Topic-based processing, incremental processing, and partial storage tests targeting the Groq-backed Gemma route
+- **Mocked dependencies**: Firebase Firestore and Groq chat completion mocks for reliable testing
 
 ## Installation
+
+### Prerequisites
+
+Before setting up the project, you'll need to create accounts and obtain API keys:
+
+1. **Groq Account**: Sign up at [console.groq.com](https://console.groq.com/signup) to get an API key with access to the Gemma 2 9B Instruct model.
+2. **Firebase Project**: Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com/) with Firestore enabled.
+3. **Gmail Account**: Set up a Gmail account with 2FA enabled to generate an app password for email sending.
+
+### Setup Steps
 
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/p55d2k/thegist.git
-   cd thegist
+   git clone https://github.com/p55d2k/zk-newsletter.git
+   cd zk-newsletter
    ```
 
 2. Install dependencies:
@@ -62,39 +72,64 @@ The test suite includes:
    bun install
    ```
 
-3. Set up environment variables. Create a `.env.local` file in the root directory:
+3. Set up environment variables:
 
-   ```env
-   GOOGLE_USER_EMAIL=your-gmail@gmail.com
-   GOOGLE_APP_PASSWORD=your-app-password
-   GEMINI_API_KEY=your-gemini-api-key
+   Copy the example file and fill in your credentials:
 
-   # Firebase Configuration
-   FIREBASE_API_KEY=your-firebase-api-key
-   FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-   FIREBASE_PROJECT_ID=your-project-id
-   FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-   FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-   FIREBASE_APP_ID=your-app-id
-   FIREBASE_MEASUREMENT_ID=your-measurement-id
+   ```bash
+   cp .env.example .env.local
    ```
 
-   **Email Configuration:**
+   Edit `.env.local` with your actual values. See the [Environment Variables](#environment-variables) section below for details on each variable.
 
-   - `GOOGLE_USER_EMAIL`: Your Gmail address for sending emails.
-   - `GOOGLE_APP_PASSWORD`: Generate an app password from Google Account settings (enable 2FA first).
-   - `GEMINI_API_KEY`: Your Google Gemini API key for AI-powered curation.
+4. Run tests to verify setup:
 
-- `NEWSLETTER_JOB_TOKEN`: Shared secret used as a Bearer token for secured automation endpoints.
-
-  **Firebase Configuration:**
-  Set up a Firebase project with Firestore database enabled for subscriber management.
-
-4. ~~Configure recipients in `app/constants/recipients.ts`:~~
-   ```typescript
-   // No longer needed - subscribers are managed via Firebase
-   // The app now dynamically fetches active subscribers from Firestore
+   ```bash
+   bun run test
    ```
+
+5. Start the development server:
+
+   ```bash
+   bun run dev
+   ```
+
+   The app will be available at `http://localhost:3000`.
+
+### Environment Variables
+
+Create a `.env.local` file in the root directory with the following variables:
+
+```env
+# Email Configuration
+GOOGLE_USER_EMAIL=your-gmail@gmail.com
+GOOGLE_APP_PASSWORD=your-app-password
+
+# Groq Configuration
+GROQ_API_KEY=your-groq-api-key
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_TIMEOUT_MS=12000
+
+# Firebase Configuration
+FIREBASE_API_KEY=your-firebase-api-key
+FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+FIREBASE_APP_ID=your-app-id
+FIREBASE_MEASUREMENT_ID=your-measurement-id
+
+# API Security
+NEWSLETTER_JOB_TOKEN=your-shared-secret-token
+```
+
+**Getting API Keys:**
+
+- **Groq**: Visit [console.groq.com/keys](https://console.groq.com/keys) after signing up to generate an API key.
+- **Firebase**: Go to Project Settings > General > Your apps in the Firebase console to get the config values.
+- **Gmail App Password**: Enable 2FA on your Gmail account, then generate an app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+
+**Security Note**: Never commit `.env.local` to version control. The `.env.example` file shows the required structure without sensitive data.
 
 ## Usage
 
@@ -111,7 +146,7 @@ The app will be available at `http://localhost:3000`.
 ### Email Preview
 
 Visit `http://localhost:3000/email-preview` to preview the newsletter content and styling before sending.
-Note: the preview page renders the newsletter using a local fallback planner (no Gemini API calls) to avoid making external AI requests during preview.
+Note: the preview page renders the newsletter using a local fallback planner (no external LLM calls) to avoid making external AI requests during preview.
 
 ### Email Status Dashboard
 
@@ -128,10 +163,6 @@ Visit `http://localhost:3000/status` to monitor newsletter email delivery:
 - **Auto-refresh**: Automatically refreshes pending sends every 30 seconds
 
 The status page helps verify email delivery after getting a 200 response from the newsletter API, providing confidence that emails were actually sent successfully.
-
-### Gemini Testing
-
-Visit `http://localhost:3000/gemini-test` to test Gemini API configurations and debug newsletter generation.
 
 ### Building and Running
 
@@ -151,43 +182,93 @@ bun run start
 
 #### GET `/api/news`
 
-Fetches and aggregates commentary articles from all configured RSS feeds. Requires the `Authorization: Bearer $NEWSLETTER_JOB_TOKEN` header. Persists the results into the Firestore job queue by default (set `persist=false` to skip storage) and accepts an optional `batchSize=<n>` (default 50) to control email batch size.
+Continues news collection for an active newsletter job. Requires the `NEWSLETTER_JOB_TOKEN` bearer token and an active job started by `/api/start-newsletter`. Processes a batch of RSS sources and appends them to the existing job.
+
+**Query Parameters:**
+
+- `persist` (required): Must be `true` to enable persistence
+- `sources` (optional): Number of RSS sources to process per batch (default: 12, recommended: 5)
+
+**Response (Success):**
+
+```json
+{
+  "message": "Appended 5 sources (25/105)",
+  "count": 45,
+  "persisted": true,
+  "sendId": "a1b2c3d4",
+  "totalRecipients": 150,
+  "pendingRecipients": 150,
+  "batchSize": 50,
+  "jobStatus": "news-collecting",
+  "processedSources": 25,
+  "remainingSources": 80,
+  "totalSources": 105,
+  "batchSources": 5,
+  "batchArticles": 23,
+  "appendedArticles": 23,
+  "totalArticles": 45,
+  "totalTopics": 8,
+  "totalPublishers": 6,
+  "sourcesPerRun": 5
+}
+```
+
+**Response (No Active Job):**
+
+```json
+{
+  "error": "No active newsletter job found. Start a job with /api/start-newsletter first."
+}
+```
+
+**Response (Collection Complete):**
+
+```json
+{
+  "message": "Completed news collection job: processed 5 sources this run",
+  "count": 120,
+  "persisted": true,
+  "sendId": "a1b2c3d4",
+  "totalRecipients": 150,
+  "pendingRecipients": 150,
+  "batchSize": 50,
+  "jobStatus": "news-ready",
+  "processedSources": 105,
+  "remainingSources": 0,
+  "totalSources": 105,
+  "batchSources": 5,
+  "batchArticles": 15,
+  "appendedArticles": 15,
+  "totalArticles": 120,
+  "totalTopics": 11,
+  "totalPublishers": 8,
+  "sourcesPerRun": 5
+}
+```
+
+#### POST `/api/start-newsletter`
+
+Starts a new newsletter job by creating an initial job record with subscribers. Requires the `NEWSLETTER_JOB_TOKEN` bearer token. This endpoint should be called once daily to begin the newsletter process.
 
 **Response:**
 
 ```json
 {
-  "message": "Retrieved X commentary items across Y topic feeds",
-  "count": 123,
-  "topics": [
-    {
-      "topic": "Latest",
-      "slug": "cna-latest",
-      "publisher": "ChannelNewsAsia",
-      "sectionHints": ["international", "politics", "business", "tech"],
-      "items": [
-        {
-          "title": "Article Title",
-          "description": "Article description...",
-          "link": "https://...",
-          "pubDate": "2025-09-29T10:00:00.000Z",
-          "source": "ChannelNewsAsia",
-          "publisher": "ChannelNewsAsia",
-          "topic": "Latest",
-          "slug": "cna-latest",
-          "sectionHints": ["international"],
-          "imageUrl": "https://..." // optional
-        }
-      ]
-    }
-  ],
-  "news": [...],
-  "persisted": true,
-  "sendId": "abcd1234",
-  "totalRecipients": 200,
-  "pendingRecipients": 200,
-  "batchSize": 50,
-  "jobStatus": "news-ready"
+  "message": "Newsletter job started",
+  "sendId": "a1b2c3d4",
+  "totalRecipients": 150,
+  "jobStatus": "news-collecting"
+}
+```
+
+If a newsletter job is already in progress, returns:
+
+```json
+{
+  "error": "Newsletter job already in progress",
+  "sendId": "existing-job-id",
+  "jobStatus": "news-collecting"
 }
 ```
 
@@ -212,11 +293,11 @@ Handles newsletter subscription requests. Validates email format and stores acti
 }
 ```
 
-#### POST `/api/gemini`
+#### POST `/api/llm`
 
-Formats a staged newsletter job via Gemini. Requires the `NEWSLETTER_JOB_TOKEN` bearer token.
+Formats a staged newsletter job via Groq Gemma. Requires the `NEWSLETTER_JOB_TOKEN` bearer token.
 
-The `/api/gemini` endpoint now processes newsletter topics incrementally. On each call without a specific topic, it processes one topic at a time, prioritizing jobs with partial Gemini work. Once all topics for a job are processed, it finalizes the newsletter plan and sets the job status to "ready-to-send".
+The `/api/llm` endpoint processes newsletter topics incrementally. On each call without a specific topic, it processes one topic at a time, prioritizing jobs with partial LLM work. Once all topics for a job are processed, it finalizes the newsletter plan using a heuristic approach and sets the job status to "ready-to-send".
 
 **Query Parameters:**
 
@@ -259,18 +340,6 @@ Or when complete:
 }
 ```
 
-**Response (Topic Processing):**
-
-```json
-{
-  "message": "Topic processed",
-  "sendId": "a1b2c3d4",
-  "topic": "commentaries",
-  "articlesUsed": 5,
-  "candidatesFetched": 10
-}
-```
-
 Provide `{ "sendId": "..." }` to target a specific job, or omit the body to automatically claim the oldest `news-ready` job. Saves rendered HTML, plain text, and AI metadata back to Firestore.
 
 #### POST `/api/send-newsletter`
@@ -296,14 +365,7 @@ Sends the next batch (or batches) of recipients for a staged job. Requires the `
 }
 ```
 
-> Note: preprocessing has been removed. `/api/news` should be followed by `/api/gemini` to generate a newsletter plan.
-> Important: preprocessing has been removed. The expected pipeline is now:
->
-> 1. Repeatedly call `GET /api/news` to fetch and persist news in batches. Each call will append to or create a job in Firestore. If there is no new content to add, the endpoint may return `204 No Content` or a small payload indicating no-op.
-> 2. When a job reaches `news-ready` (or you wish to generate the newsletter), call `POST /api/gemini` to format and plan the newsletter using Gemini.
-> 3. Finally, call `POST /api/send-newsletter` to send batches of the generated newsletter.
->
-> Do not call a separate preprocessing endpoint — it has been deprecated and removed.
+> Note: preprocessing has been removed. `/api/news` should be followed by `/api/llm` to generate a newsletter plan.
 
 #### GET `/api/status`
 
@@ -349,34 +411,15 @@ Checks the delivery status of newsletter emails. Can retrieve recent sends or ch
 }
 ```
 
-#### GET `/api/gemini-test`
-
-Tests available Gemini models and API connectivity.
-
-#### POST `/api/gemini-debug`
-
-Debugs newsletter generation with different dataset sizes.
-
-#### POST `/api/gemini-config-test`
-
-Tests different Gemini configuration options.
-
 ### Automation with cron-job.org
 
 1. **Generate a shared token**: Set `NEWSLETTER_JOB_TOKEN` in your deployment environment and keep a copy for cron-job.org.
-2. **Create jobs** (all `POST` except the first):
+2. **Create jobs**:
 
-- `GET https://<your-domain>/api/news` - Fetch and aggregate news
-- `POST https://<your-domain>/api/gemini` - Process one topic incrementally (repeat until plan is generated)
-- `POST https://<your-domain>/api/send-newsletter` - Send newsletter batches
-
-**Alternative granular approach** (for better performance):
-
-- `GET https://<your-domain>/api/news` - Fetch news
-- `POST https://<your-domain>/api/gemini?topic=commentaries` - Process commentaries
-- `POST https://<your-domain>/api/gemini?topic=international` - Process international
-- ... (one job per topic)
-- `POST https://<your-domain>/api/send-newsletter` - Send newsletter
+- `POST https://<your-domain>/api/start-newsletter` - Start a new newsletter job (run once daily at your desired send time)
+- `GET https://<your-domain>/api/news?persist=true&sources=5` - Continue news collection (run every 5 minutes)
+- `POST https://<your-domain>/api/llm` - Process topics incrementally (run every 5 minutes)
+- `POST https://<your-domain>/api/send-newsletter` - Send newsletter batches (run every 5 minutes)
 
 3. **Add the authorization header** to each job:
 
@@ -386,14 +429,15 @@ Tests different Gemini configuration options.
 
 4. **Schedule cadence**:
 
-   - News fetch every hour (or more frequently if desired).
-   - Gemini processing 2–3 minutes after news fetch (repeat calls to `/api/gemini` without parameters until the plan is finalized).
-   - Send step 2–3 minutes after Gemini completion; set it to repeat every few minutes for automatic retries on batch failures.
+- **Start Newsletter**: Daily at your preferred send time (e.g., 8:00 AM)
+- **News Collection**: Every 5 minutes (continues the active job until all sources processed)
+- **LLM Processing**: Every 5 minutes (processes topics until plan is complete)
+- **Email Sending**: Every 5 minutes (sends batches until all emails delivered)
 
-5. **Timeouts & retries**: Set request timeout to ≥30 seconds and enable retries on failure so transient RSS or SMTP outages are retried automatically.
-6. **Monitoring**: Cron-job.org provides response logs; pair this with the `/status` dashboard or endpoint to confirm job completion.
+5. **Timeouts & retries**: Set request timeout to ≥60 seconds for news collection, ≥120 seconds for LLM, and ≥60 seconds for sending. Enable retries on failure.
+6. **Monitoring**: Use `/api/status` endpoint or the status dashboard to monitor progress.
 
-The pipeline is idempotent: all endpoints automatically handle re-runs safely. The incremental topic processing allows for better fault tolerance and progress tracking.
+The pipeline uses job state management to ensure each phase only runs when appropriate. The news collection and LLM processing are incremental, allowing for fault tolerance and resumability.
 
 ### Testing the pipeline with curl
 
@@ -403,45 +447,32 @@ Run the dev server locally (`bun run dev`) and export your token before testing:
 export NEWSLETTER_JOB_TOKEN=your-shared-token
 ```
 
-Fetch and persist the latest news:
+Start a new newsletter job:
 
 ```bash
-curl --request GET "http://localhost:3000/api/news" \
+curl --request POST "http://localhost:3000/api/start-newsletter" \
   --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
-Generate the full newsletter plan (omit the body to auto-claim the oldest job, or pass a specific `sendId`):
+Continue news collection (repeat until all sources processed):
 
 ```bash
-curl --request POST "http://localhost:3000/api/gemini" \
-  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
-  --header "Content-Type: application/json" \
-  --data '{"sendId": "YOUR_SEND_ID"}'
+curl --request GET "http://localhost:3000/api/news?persist=true&sources=5" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
-**Process individual topics** (for testing or granular control):
+Generate the newsletter plan (repeat until plan is complete):
 
 ```bash
-# Process commentaries only
-curl --request POST "http://localhost:3000/api/gemini?topic=commentaries" \
-  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
-  --header "Content-Type: application/json" \
-  --data '{"sendId": "YOUR_SEND_ID"}'
-
-# Process with custom limits
-curl --request POST "http://localhost:3000/api/gemini?topic=business&limit=5&extra=3" \
-  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
-  --header "Content-Type: application/json" \
-  --data '{"sendId": "YOUR_SEND_ID"}'
+curl --request POST "http://localhost:3000/api/llm" \
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
-Send the next batch of emails:
+Send newsletter batches (repeat until all emails sent):
 
 ```bash
 curl --request POST "http://localhost:3000/api/send-newsletter" \
-  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}" \
-  --header "Content-Type: application/json" \
-  --data '{"sendId": "YOUR_SEND_ID", "maxBatches": 1}'
+  --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
 Check delivery status:
@@ -451,32 +482,16 @@ curl --request GET "http://localhost:3000/api/status?id=YOUR_SEND_ID" \
   --header "Authorization: Bearer ${NEWSLETTER_JOB_TOKEN}"
 ```
 
-Responses include the latest job metadata so you can confirm when the queue reaches `success`.
-
 ### Customization
 
 - **RSS Feeds**: Modify topics and URLs in `constants/links.ts`.
 - **Email Templates**: Update styling and layout in `lib/email.ts`.
-- **AI Planning**: Customize Gemini prompts and section logic in `lib/gemini.ts`.
+- **AI Planning**: Customize Groq prompt templates and section logic in `lib/llm.ts`.
 - **Date/Time Utilities**: Customize greetings and formatting in `lib/date.ts`.
 - **Landing Page**: Modify the homepage design and content in `app/page.tsx`.
 - **Subscription Flow**: Customize the subscription component in `components/NewsletterSubscription.tsx`.
 - **Database Schema**: Extend subscriber data structure in `lib/firestore.ts`.
 - **Brand Assets**: Use `public/logo.svg` for light backgrounds and `public/logo-dark.svg` for dark backgrounds.
-
-## Environment Variables
-
-- `GOOGLE_USER_EMAIL`: Gmail address for sending emails.
-- `GOOGLE_APP_PASSWORD`: Gmail app password.
-- `GEMINI_API_KEY`: Google Gemini API key for AI curation.
-- `GEMINI_MODEL`: Optional, defaults to "gemini-2.5-flash-lite".
-- `FIREBASE_API_KEY`: Firebase API key for Firestore access.
-- `FIREBASE_AUTH_DOMAIN`: Firebase auth domain.
-- `FIREBASE_PROJECT_ID`: Firebase project ID.
-- `FIREBASE_STORAGE_BUCKET`: Firebase storage bucket.
-- `FIREBASE_MESSAGING_SENDER_ID`: Firebase messaging sender ID.
-- `FIREBASE_APP_ID`: Firebase app ID.
-- `FIREBASE_MEASUREMENT_ID`: Firebase measurement ID (optional).
 
 ## Contributing
 
@@ -488,17 +503,11 @@ Responses include the latest job metadata so you can confirm when the queue reac
 
 ## License
 
-This project is private and not licensed for public use.
+This project is licensed under the [MIT License](LICENSE).
 
 ## Notes
 
-- Ensure Gmail account has 2FA enabled for app passwords.
-- Set up Firebase project with Firestore database enabled.
 - The app uses a user-agent header to mimic browser requests for RSS feeds.
 - Emails are sent with no-cache headers to ensure fresh content.
-- Newsletter generation uses background processing to avoid cron timeouts.
-- AI curation falls back to heuristic selection if Gemini API fails.
-- Subscriber data is stored securely in Firestore with email validation.
-- The landing page features responsive design with smooth animations.
+- AI curation falls back to heuristic selection if Groq requests fail.
 - For production deployment, consider using Vercel or Railway for Next.js hosting with Firebase integration.
-  **Preprocessing**: Removed. The pipeline is: repeatedly call `/api/news` until a job is ready, then `/api/gemini`, then `/api/send-newsletter`.

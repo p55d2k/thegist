@@ -1,12 +1,12 @@
 import {
   generateNewsletterPlan,
   generateNewsletterPlanPreview,
-} from "@/lib/gemini";
+} from "@/lib/llm";
 import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
 import { EMAIL_CONTENT, HTML_ENTITIES } from "@/constants/email";
 
 export interface FormattedArticles {
-  plan: GeminiNewsletterPlan;
+  plan: LLMNewsletterPlan;
   html: string;
   text: string;
   totalTopics: number;
@@ -20,12 +20,12 @@ export interface FormattedArticles {
 }
 
 const SECTION_COPY: Record<
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">,
   { title: string; subtitle: string }
 > = {
   commentaries: {
     title: "Hot takes",
-    subtitle: "Deeper dives that add context without the jargon (3-5 picks).",
+    subtitle: "Deeper dives that add context without the jargon.",
   },
   international: {
     title: "Around the world",
@@ -291,7 +291,7 @@ export const buildHtml = (formatted: FormattedArticles): string => {
               Here's the gist.
             </h1>
             <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
-              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed dozens of sources so you don't have to. Here's what actually matters today (${escapeHtml(
+              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today (${escapeHtml(
     generatedOn
   )}).
             </p>
@@ -310,8 +310,10 @@ export const buildHtml = (formatted: FormattedArticles): string => {
                 "We kept it honest: what happened, why it matters, and what might change next. Sources for every pick are linked below."
             )}
           </div>
-          
-          <section style="margin-bottom: 32px;">
+          ${
+            aiMetadata.usedFallback
+              ? ""
+              : `<section style="margin-bottom: 32px;">
             <div style="margin-bottom: 16px;">
               <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">Today's essential reads</h2>
               <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
@@ -323,7 +325,8 @@ export const buildHtml = (formatted: FormattedArticles): string => {
                 .map((item, index) => renderHighlightCard(item, index))
                 .join("")}
             </div>
-          </section>
+          </section>`
+          }
           
           ${renderSection("commentaries", commentaries)}
           ${renderSection("international", international)}
@@ -413,9 +416,13 @@ export const buildText = (formatted: FormattedArticles): string => {
 
   const textSections = [
     `THE GIST — ${generatedOn}`,
-    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed dozens of sources so you don't have to.`,
+    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed 100+ of sources so you don't have to.`,
     `SUMMARY\n${summaryText}`,
-    `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
+    ...(aiMetadata.usedFallback
+      ? []
+      : [
+          `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
+        ]),
     sectionToText(
       SECTION_COPY.commentaries.title,
       commentaries,
@@ -472,7 +479,7 @@ export const buildText = (formatted: FormattedArticles): string => {
 };
 
 type PlanGenerationResult = {
-  plan: GeminiNewsletterPlan;
+  plan: LLMNewsletterPlan;
   metadata: FormattedArticles["aiMetadata"];
 };
 
@@ -579,19 +586,9 @@ const extractPreClusteredArticles = (
   return hasPreClustered ? preClustered : undefined;
 };
 
-export const formatArticles = async (
-  topics: TopicNewsGroup[]
-): Promise<FormattedArticles> => {
-  const uniqueArticles = collectUniqueArticles(topics);
-  const preClustered = extractPreClusteredArticles(topics);
-  const planResult = await generateNewsletterPlan(uniqueArticles, preClustered);
-
-  return finalizeFormattedArticles(topics, uniqueArticles, planResult);
-};
-
-export const formatArticlesWithoutGemini = async (
+export const formatArticlesWithoutLLM = async (
   topics: TopicNewsGroup[],
-  fallbackReason = "Preview mode without Gemini"
+  fallbackReason = "Preview mode without Groq"
 ): Promise<FormattedArticles> => {
   const uniqueArticles = collectUniqueArticles(topics);
   const planResult = generateNewsletterPlanPreview(
@@ -644,4 +641,76 @@ export const formatBody = (
       id
     )}</small></footer>`
   );
+};
+
+export const computeTotalsFromPlan = (
+  plan: LLMNewsletterPlan
+): { totalArticles: number; totalTopics: number; totalPublishers: number } => {
+  const normalizeUrl = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = "";
+      if (parsed.hostname.startsWith("www.")) {
+        parsed.hostname = parsed.hostname.slice(4);
+      }
+      if (parsed.protocol === "http:") {
+        parsed.protocol = "https:";
+      }
+      return parsed.toString();
+    } catch (error) {
+      return url.trim();
+    }
+  };
+
+  const orderedSections: Array<{
+    key: keyof Omit<LLMNewsletterPlan, "summary"> | "essentialReads";
+    items: NewsletterSectionItem[];
+  }> = [
+    { key: "essentialReads", items: plan.essentialReads.highlights ?? [] },
+    { key: "commentaries", items: plan.commentaries ?? [] },
+    { key: "international", items: plan.international ?? [] },
+    { key: "politics", items: plan.politics ?? [] },
+    { key: "business", items: plan.business ?? [] },
+    { key: "tech", items: plan.tech ?? [] },
+    { key: "sport", items: plan.sport ?? [] },
+    { key: "culture", items: plan.culture ?? [] },
+    { key: "wildCard", items: plan.wildCard ?? [] },
+    { key: "entertainment", items: plan.entertainment ?? [] },
+    { key: "science", items: plan.science ?? [] },
+    { key: "lifestyle", items: plan.lifestyle ?? [] },
+  ];
+
+  const seenLinks = new Set<string>();
+  const seenPublishers = new Set<string>();
+  const uniqueArticles: NewsletterSectionItem[] = [];
+
+  for (const { items } of orderedSections) {
+    for (const article of items) {
+      if (!article?.link) {
+        continue;
+      }
+      const linkKey = normalizeUrl(article.link);
+      if (seenLinks.has(linkKey)) {
+        continue;
+      }
+      seenLinks.add(linkKey);
+      uniqueArticles.push(article);
+      if (article.publisher) {
+        seenPublishers.add(article.publisher);
+      }
+    }
+  }
+
+  let totalTopics = 0;
+  orderedSections.forEach(({ items }) => {
+    if (items && items.length > 0) {
+      totalTopics += 1;
+    }
+  });
+
+  return {
+    totalArticles: uniqueArticles.length,
+    totalTopics,
+    totalPublishers: seenPublishers.size,
+  };
 };

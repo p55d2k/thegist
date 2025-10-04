@@ -30,5 +30,5 @@ export const DEFAULT_LIMITS = {
   batchSize: 50,
   maxBatches: 1,
   rssArticlesPerFeed: 10, // Limit articles fetched per RSS feed to reduce processing
-  newsSourcesPerRun: 12,
+  newsSourcesPerRun: 10,
 } as const;

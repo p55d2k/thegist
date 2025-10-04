@@ -64,10 +64,10 @@ export async function GET(req: NextRequest) {
     ? Math.max(1, Math.min(parsedSources, Math.max(1, totalSources)))
     : defaultSourcesPerRun;
 
-  const twentyFourHoursAgo = new Date(Date.now() - ONE_DAY_MS);
+  const oneWeekAgo = new Date(Date.now() - 7 * ONE_DAY_MS);
 
   if (!persist) {
-    const newsResult = await fetchNewsForLinks(links, twentyFourHoursAgo);
+    const newsResult = await fetchNewsForLinks(links, oneWeekAgo);
 
     const basePayload: Record<string, unknown> = {
       message: `Retrieved ${newsResult.allNews.length} items across ${newsResult.topics.length} topic feeds`,
@@ -96,110 +96,83 @@ export async function GET(req: NextRequest) {
   const activeJob = await findActiveNewsCollectionJob();
 
   if (!activeJob) {
-    const slice = links.slice(0, sourcesPerRun);
-    const newsResult = await fetchNewsForLinks(slice, twentyFourHoursAgo);
-    const recipients = await getActiveSubscribers();
+    return NextResponse.json(
+      {
+        error:
+          "No active newsletter job found. Start a job with /api/start-newsletter first.",
+      },
+      { status: 400 }
+    );
+  }
 
-    const job = await createNewsletterJobFromNews({
-      topics: newsResult.serializedTopics,
-      articlesSummary: newsResult.articlesSummary,
-      recipients,
-      batchSize,
-      status: "news-collecting",
-      newsCursor: slice.length,
-      sourcesTotal: totalSources,
+  const { id, job } = activeJob;
+  const currentCursor = job.newsCursor ?? 0;
+  const resolvedSourcesTotal = Math.max(totalSources, job.sourcesTotal ?? 0);
+
+  if (currentCursor >= resolvedSourcesTotal) {
+    return new NextResponse(null, { status: 204 });
+  }
+
+  const slice = links.slice(
+    currentCursor,
+    Math.min(resolvedSourcesTotal, currentCursor + sourcesPerRun)
+  );
+
+  if (slice.length === 0) {
+    return new NextResponse(null, { status: 204 });
+  }
+
+  const newsResult = await fetchNewsForLinks(slice, oneWeekAgo);
+
+  try {
+    const appendResult = await appendNewsBatchToJob({
+      id,
+      expectedCursor: currentCursor,
+      newTopics: newsResult.serializedTopics,
+      cursorIncrement: slice.length,
+      totalSources: resolvedSourcesTotal,
     });
 
-    message = `Initialized news collection job: processed ${slice.length}/${totalSources} sources`;
-    count = newsResult.articlesSummary.totalArticles;
+    message =
+      appendResult.status === "news-ready"
+        ? `Completed news collection job: processed ${slice.length} sources this run`
+        : `Appended ${slice.length} sources (${appendResult.newsCursor}/${appendResult.sourcesTotal})`;
+
+    count = appendResult.articlesSummary.totalArticles;
 
     persistenceInfo = {
       persisted: true,
-      sendId: job.id,
-      totalRecipients: recipients.length,
-      pendingRecipients: job.pendingRecipientsCount ?? recipients.length,
+      sendId: id,
+      totalRecipients: appendResult.totalRecipients,
+      pendingRecipients: appendResult.pendingRecipientsCount,
       batchSize,
-      jobStatus: job.status,
-      processedSources: slice.length,
-      remainingSources: Math.max(totalSources - slice.length, 0),
-      totalSources,
+      jobStatus: appendResult.status,
+      processedSources: appendResult.newsCursor,
+      remainingSources: Math.max(
+        appendResult.sourcesTotal - appendResult.newsCursor,
+        0
+      ),
+      totalSources: appendResult.sourcesTotal,
       batchSources: slice.length,
       batchArticles: newsResult.allNews.length,
-      totalArticles: newsResult.articlesSummary.totalArticles,
-      totalTopics: newsResult.articlesSummary.totalTopics,
-      totalPublishers: newsResult.articlesSummary.totalPublishers,
+      appendedArticles: appendResult.appendedArticles,
+      totalArticles: appendResult.articlesSummary.totalArticles,
+      totalTopics: appendResult.articlesSummary.totalTopics,
+      totalPublishers: appendResult.articlesSummary.totalPublishers,
       sourcesPerRun,
     };
-  } else {
-    const { id, job } = activeJob;
-    const currentCursor = job.newsCursor ?? 0;
-    const resolvedSourcesTotal = Math.max(totalSources, job.sourcesTotal ?? 0);
-
-    if (currentCursor >= resolvedSourcesTotal) {
-      return new NextResponse(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof NewsJobCursorConflictError) {
+      const response = NextResponse.json(
+        {
+          error: "News job cursor advanced by another worker. Retry shortly.",
+        },
+        { status: 409 }
+      );
+      applyCacheHeaders(response);
+      return response;
     }
-
-    const slice = links.slice(
-      currentCursor,
-      Math.min(resolvedSourcesTotal, currentCursor + sourcesPerRun)
-    );
-
-    if (slice.length === 0) {
-      return new NextResponse(null, { status: 204 });
-    }
-
-    const newsResult = await fetchNewsForLinks(slice, twentyFourHoursAgo);
-
-    try {
-      const appendResult = await appendNewsBatchToJob({
-        id,
-        expectedCursor: currentCursor,
-        newTopics: newsResult.serializedTopics,
-        cursorIncrement: slice.length,
-        totalSources: resolvedSourcesTotal,
-      });
-
-      message =
-        appendResult.status === "news-ready"
-          ? `Completed news collection job: processed ${slice.length} sources this run`
-          : `Appended ${slice.length} sources (${appendResult.newsCursor}/${appendResult.sourcesTotal})`;
-
-      count = appendResult.articlesSummary.totalArticles;
-
-      persistenceInfo = {
-        persisted: true,
-        sendId: id,
-        totalRecipients: appendResult.totalRecipients,
-        pendingRecipients: appendResult.pendingRecipientsCount,
-        batchSize,
-        jobStatus: appendResult.status,
-        processedSources: appendResult.newsCursor,
-        remainingSources: Math.max(
-          appendResult.sourcesTotal - appendResult.newsCursor,
-          0
-        ),
-        totalSources: appendResult.sourcesTotal,
-        batchSources: slice.length,
-        batchArticles: newsResult.allNews.length,
-        appendedArticles: appendResult.appendedArticles,
-        totalArticles: appendResult.articlesSummary.totalArticles,
-        totalTopics: appendResult.articlesSummary.totalTopics,
-        totalPublishers: appendResult.articlesSummary.totalPublishers,
-        sourcesPerRun,
-      };
-    } catch (error) {
-      if (error instanceof NewsJobCursorConflictError) {
-        const response = NextResponse.json(
-          {
-            error: "News job cursor advanced by another worker. Retry shortly.",
-          },
-          { status: 409 }
-        );
-        applyCacheHeaders(response);
-        return response;
-      }
-      throw error;
-    }
+    throw error;
   }
 
   if (!persistenceInfo) {
@@ -351,38 +324,63 @@ async function fetchNewsForLinks(
     )
   );
 
+  // Group articles by sectionHint instead of by feed
+  const articlesByHint = new Map<NewsletterSectionHint, ProcessedNewsItem[]>();
   const seenGlobal = new Set<string>();
-  const topics: TopicNewsGroup[] = [];
 
   for (const group of groupedResults) {
     if (!group) {
       continue;
     }
 
-    const uniqueItems = group.items.filter((item) => {
+    for (const item of group.items) {
       if (seenGlobal.has(item.link)) {
-        return false;
+        continue;
       }
       seenGlobal.add(item.link);
-      return true;
-    });
 
-    if (uniqueItems.length === 0) {
-      continue;
+      // Add article to ALL matching section hints
+      for (const hint of item.sectionHints) {
+        if (!articlesByHint.has(hint)) {
+          articlesByHint.set(hint, []);
+        }
+        articlesByHint.get(hint)!.push(item);
+      }
     }
-
-    topics.push({
-      ...group,
-      items: uniqueItems,
-    });
   }
 
-  topics.sort((a, b) => {
-    const publisherCompare = a.publisher.localeCompare(b.publisher);
-    if (publisherCompare !== 0) {
-      return publisherCompare;
+  // Create topic groups from the grouped articles
+  const topics: TopicNewsGroup[] = [];
+
+  articlesByHint.forEach((items, hint) => {
+    if (items.length === 0) {
+      return;
     }
-    return a.topic.localeCompare(b.topic);
+
+    // Use the hint as the topic name, and find a representative publisher/slug
+    const representativeItem = items[0];
+    const topicName = hint;
+    const topicSlug = hint;
+    const topicPublisher =
+      items.length === 1 ? representativeItem.publisher : "Multiple Publishers";
+
+    topics.push({
+      topic: topicName,
+      slug: topicSlug,
+      publisher: topicPublisher,
+      sectionHints: [hint],
+      items: items.sort(
+        (a: ProcessedNewsItem, b: ProcessedNewsItem) =>
+          b.pubDate.getTime() - a.pubDate.getTime()
+      ),
+    });
+  });
+  topics.sort((a, b) => {
+    const hintCompare = a.sectionHints[0].localeCompare(b.sectionHints[0]);
+    if (hintCompare !== 0) {
+      return hintCompare;
+    }
+    return a.publisher.localeCompare(b.publisher);
   });
 
   const allNews = topics.flatMap((group) => group.items);

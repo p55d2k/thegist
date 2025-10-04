@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  formatArticlesWithoutGemini,
+  formatArticlesWithoutLLM,
   formatBody,
   formatRawBody,
 } from "@/lib/email";
@@ -48,7 +48,7 @@ const EmailPreview = () => {
           ...group,
           items: group.items.map((item) => ({ ...item, link: "#" })),
         }));
-        const formatted = await formatArticlesWithoutGemini(
+        const formatted = await formatArticlesWithoutLLM(
           topics, // Use original topics for processing
           "Email preview with real newsletter data"
         );

@@ -1,28 +1,29 @@
-// Gemini AI configuration constants
-export const GEMINI_CONFIG = {
+// LLM configuration constants (Groq)
+export const LLM_CONFIG = {
   maxInputArticles: 80,
-  defaultModel: "gemini-2.5-flash-lite",
+  defaultModel: "openai/gpt-oss-20b",
+  baseUrl: "https://api.groq.com",
 } as const;
 
 export const SECTION_LIMITS: Record<
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">,
   number
 > = {
-  commentaries: 7,
-  international: 3,
-  politics: 3,
-  business: 3,
-  tech: 3,
-  entertainment: 3,
-  science: 2,
-  lifestyle: 2,
-  sport: 2,
-  culture: 2,
-  wildCard: 1,
+  commentaries: 15,
+  international: 8,
+  politics: 8,
+  business: 8,
+  tech: 8,
+  entertainment: 8,
+  science: 6,
+  lifestyle: 6,
+  sport: 6,
+  culture: 6,
+  wildCard: 3,
 } as const;
 
 export const SECTION_HINT_MAP: Record<
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">,
   NewsletterSectionHint
 > = {
   commentaries: "commentaries",
@@ -39,10 +40,7 @@ export const SECTION_HINT_MAP: Record<
 } as const;
 
 export const SECTION_KEYWORDS: Partial<
-  Record<
-    keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">,
-    RegExp[]
-  >
+  Record<keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">, RegExp[]>
 > = {
   commentaries: [
     /opinion/i,
@@ -157,7 +155,7 @@ export const SECTION_KEYWORDS: Partial<
 
 export const SECTION_TOKEN_MAP: Record<
   string,
-  keyof Omit<GeminiNewsletterPlan, "essentialReads" | "summary">
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">
 > = {
   commentaries: "commentaries",
   international: "international",

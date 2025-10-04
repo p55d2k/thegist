@@ -1,51 +1,46 @@
-// FOCUS: implement the task exactly as described. Do not add unrelated features or extra abstraction layers.
-// MODIFY ONLY: edit `app/api/gemini/route.ts`, add `app/api/gemini/_helpers.ts`, and update `lib/gemini.ts` only if strictly necessary. Keep other files unchanged unless required for small helpers.
-// IDEMPOTENT: ensure partial topic processing is safe to re-run and avoids duplicating stored data unless `force=true`.
-// RETURN SHAPE: Follow the specified JSON response format for success and errors.
-
 import {
   SECTION_LIMITS,
   SECTION_HINT_MAP,
   SECTION_TOKEN_MAP,
-} from "@/constants/gemini";
+} from "@/constants/llm";
 import {
   getNewsletterJob,
-  getNextNewsletterJobNeedingGemini,
+  getNextNewsletterJobNeedingLLM,
   type NewsletterJob,
   type SerializedTopicNewsGroup,
 } from "@/lib/firestore";
-import { generateNewsletterPlan } from "@/lib/gemini";
+import { generateNewsletterPlan } from "@/lib/llm";
 import { db } from "@/lib/firebase";
 import { doc, runTransaction } from "firebase/firestore";
 
 const SEND_COLLECTION = "emailSends";
 const DEFAULT_EXTRA_CANDIDATES = 5;
 
-export type GeminiTopicKey = keyof Omit<
-  GeminiNewsletterPlan,
+export type LLMTopicKey = keyof Omit<
+  LLMNewsletterPlan,
   "essentialReads" | "summary"
 >;
 
-const ALLOWED_TOPICS = Object.keys(SECTION_LIMITS) as GeminiTopicKey[];
+const ALLOWED_TOPICS = Object.keys(SECTION_LIMITS) as LLMTopicKey[];
 const ALLOWED_TOPICS_MESSAGE = ALLOWED_TOPICS.join(", ");
 
 const sanitizeToken = (raw: string): string =>
   raw.replace(/[^a-z]/gi, "").toLowerCase();
 
-const tokenToTopic = new Map<string, GeminiTopicKey>();
+const tokenToTopic = new Map<string, LLMTopicKey>();
 for (const key of ALLOWED_TOPICS) {
   tokenToTopic.set(sanitizeToken(key), key);
 }
 for (const [token, mapped] of Object.entries(SECTION_TOKEN_MAP)) {
-  tokenToTopic.set(token.toLowerCase(), mapped as GeminiTopicKey);
+  tokenToTopic.set(token.toLowerCase(), mapped as LLMTopicKey);
 }
 
-const hintToTopic = new Map<NewsletterSectionHint, GeminiTopicKey>();
+const hintToTopic = new Map<NewsletterSectionHint, LLMTopicKey>();
 for (const [topicKey, hint] of Object.entries(SECTION_HINT_MAP)) {
-  hintToTopic.set(hint, topicKey as GeminiTopicKey);
+  hintToTopic.set(hint, topicKey as LLMTopicKey);
 }
 
-export class GeminiTopicProcessingError extends Error {
+export class LLMTopicProcessingError extends Error {
   readonly status: number;
   readonly details?: Record<string, unknown>;
 
@@ -55,23 +50,23 @@ export class GeminiTopicProcessingError extends Error {
     details?: Record<string, unknown>
   ) {
     super(message);
-    this.name = "GeminiTopicProcessingError";
+    this.name = "LLMTopicProcessingError";
     this.status = status;
     this.details = details;
   }
 }
 
-class GeminiTopicAlreadyProcessedError extends Error {
-  readonly existing: GeminiTopicPartialRecord;
+class LLMTopicAlreadyProcessedError extends Error {
+  readonly existing: LLMTopicPartialRecord;
 
-  constructor(existing: GeminiTopicPartialRecord) {
+  constructor(existing: LLMTopicPartialRecord) {
     super("Topic already processed");
-    this.name = "GeminiTopicAlreadyProcessedError";
+    this.name = "LLMTopicAlreadyProcessedError";
     this.existing = existing;
   }
 }
 
-export type GeminiOverallRecord = {
+export type LLMOverallRecord = {
   overview: string;
   summary: string;
   highlights: NewsletterSectionItem[];
@@ -82,8 +77,8 @@ export type GeminiOverallRecord = {
   };
 };
 
-export type GeminiTopicPartialRecord = {
-  topic: GeminiTopicKey;
+export type LLMTopicPartialRecord = {
+  topic: LLMTopicKey;
   updatedAt: string;
   section: NewsletterSectionItem[];
   articlesUsed: number;
@@ -99,7 +94,7 @@ export type GeminiTopicPartialRecord = {
   };
 };
 
-export type GeminiJobContext = {
+export type LLMJobContext = {
   id: string;
   job: NewsletterJob;
   topics: TopicNewsGroup[];
@@ -129,7 +124,7 @@ export const deserializeTopics = (
       .filter((item) => !Number.isNaN(item.pubDate.getTime())),
   }));
 
-const normalizeTopicInput = (value: unknown): GeminiTopicKey | null => {
+const normalizeTopicInput = (value: unknown): LLMTopicKey | null => {
   if (typeof value !== "string") {
     return null;
   }
@@ -140,7 +135,7 @@ const normalizeTopicInput = (value: unknown): GeminiTopicKey | null => {
   return tokenToTopic.get(sanitized) ?? null;
 };
 
-const resolveTopicForGroup = (group: TopicNewsGroup): GeminiTopicKey | null => {
+const resolveTopicForGroup = (group: TopicNewsGroup): LLMTopicKey | null => {
   const direct = normalizeTopicInput(group.topic);
   if (direct) {
     return direct;
@@ -162,7 +157,7 @@ const resolveTopicForGroup = (group: TopicNewsGroup): GeminiTopicKey | null => {
 };
 
 const findTopicGroup = (
-  topic: GeminiTopicKey,
+  topic: LLMTopicKey,
   topics: TopicNewsGroup[]
 ): TopicNewsGroup | null => {
   for (const group of topics) {
@@ -189,9 +184,9 @@ const findTopicGroup = (
 
 export const deriveProcessableTopics = (
   topics: TopicNewsGroup[]
-): GeminiTopicKey[] => {
-  const seen = new Set<GeminiTopicKey>();
-  const ordered: GeminiTopicKey[] = [];
+): LLMTopicKey[] => {
+  const seen = new Set<LLMTopicKey>();
+  const ordered: LLMTopicKey[] = [];
 
   for (const group of topics) {
     const topic = resolveTopicForGroup(group);
@@ -208,7 +203,7 @@ export const deriveProcessableTopics = (
 export const getNextTopicToProcess = (
   job: NewsletterJob,
   topics: TopicNewsGroup[]
-): GeminiTopicKey | null => {
+): LLMTopicKey | null => {
   const processable = deriveProcessableTopics(topics);
   const partials = (job as any).aiPartial || {};
   for (const topic of processable) {
@@ -225,22 +220,22 @@ export const isAllTopicsProcessed = (
 ): boolean => {
   const processable = deriveProcessableTopics(topics);
   const partials = (job as any).aiPartial || {};
-  return processable.every(topic => partials[topic]);
+  return processable.every((topic) => partials[topic]);
 };
 
-export const loadGeminiJobOrThrow = async (
+export const loadLLMJobOrThrow = async (
   sendId?: string
-): Promise<GeminiJobContext> => {
+): Promise<LLMJobContext> => {
   if (sendId) {
     const job = await getNewsletterJob(sendId);
     if (!job) {
-      throw new GeminiTopicProcessingError(
+      throw new LLMTopicProcessingError(
         404,
         `Newsletter job ${sendId} not found`
       );
     }
     if (!job.topics || job.topics.length === 0) {
-      throw new GeminiTopicProcessingError(
+      throw new LLMTopicProcessingError(
         400,
         "Newsletter job is missing topics. Run /api/news?persist=true first."
       );
@@ -248,16 +243,16 @@ export const loadGeminiJobOrThrow = async (
     return { id: sendId, job, topics: deserializeTopics(job.topics) };
   }
 
-  const nextJob = await getNextNewsletterJobNeedingGemini();
+  const nextJob = await getNextNewsletterJobNeedingLLM();
   if (!nextJob) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       404,
-      "No newsletter job needing Gemini available"
+      "No newsletter job needing LLM planning available"
     );
   }
   const { id, job } = nextJob;
   if (!job.topics || job.topics.length === 0) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       400,
       "Newsletter job is missing topics. Run /api/news?persist=true first."
     );
@@ -297,7 +292,7 @@ const clampExtra = (value: unknown): number => {
 
 const buildCandidateSet = (
   topicGroup: TopicNewsGroup,
-  topicKey: GeminiTopicKey,
+  topicKey: LLMTopicKey,
   topics: TopicNewsGroup[],
   limit: number,
   extra: number,
@@ -347,7 +342,7 @@ const buildCandidateSet = (
   }
 
   if (candidateOrder.length === 0) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       400,
       `No articles available for topic ${topicKey}`
     );
@@ -360,10 +355,10 @@ const buildCandidateSet = (
   };
 };
 
-const persistGeminiTopicPartial = async (
+const persistLLMTopicPartial = async (
   sendId: string,
-  topic: GeminiTopicKey,
-  record: GeminiTopicPartialRecord,
+  topic: LLMTopicKey,
+  record: LLMTopicPartialRecord,
   force: boolean
 ): Promise<void> => {
   const ref = doc(db, SEND_COLLECTION, sendId);
@@ -371,19 +366,19 @@ const persistGeminiTopicPartial = async (
   await runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(ref);
     if (!snapshot.exists()) {
-      throw new GeminiTopicProcessingError(
+      throw new LLMTopicProcessingError(
         404,
         `Newsletter job ${sendId} not found`
       );
     }
 
     const data = snapshot.data() as NewsletterJob & {
-      aiPartial?: Record<string, GeminiTopicPartialRecord>;
+      aiPartial?: Record<string, LLMTopicPartialRecord>;
     };
     const existing = data.aiPartial?.[topic];
 
     if (existing && !force) {
-      throw new GeminiTopicAlreadyProcessedError(existing);
+      throw new LLMTopicAlreadyProcessedError(existing);
     }
 
     transaction.set(
@@ -398,11 +393,11 @@ const persistGeminiTopicPartial = async (
   });
 };
 
-export type ProcessGeminiTopicResult = {
+export type ProcessLLMTopicResult = {
   status: "processed" | "already-processed";
   message: string;
   sendId: string;
-  topic: GeminiTopicKey;
+  topic: LLMTopicKey;
   articlesUsed: number;
   candidatesFetched: number;
   overview?: string;
@@ -416,16 +411,16 @@ export type ProcessGeminiTopicResult = {
   };
 };
 
-export const processGeminiTopic = async (params: {
+export const processTopicWithLLM = async (params: {
   sendId?: string;
   topic: string;
   limit?: number | string;
   extra?: number | string;
   force?: boolean;
-}): Promise<ProcessGeminiTopicResult> => {
+}): Promise<ProcessLLMTopicResult> => {
   const normalizedTopic = normalizeTopicInput(params.topic);
   if (!normalizedTopic) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       400,
       `Invalid topic. Allowed topics: ${ALLOWED_TOPICS_MESSAGE}`
     );
@@ -439,14 +434,16 @@ export const processGeminiTopic = async (params: {
     id: resolvedSendId,
     job,
     topics,
-  } = await loadGeminiJobOrThrow(params.sendId);
+  } = await loadLLMJobOrThrow(params.sendId);
 
   const jobWithPartial = job as NewsletterJob & {
-    aiPartial?: Record<string, GeminiTopicPartialRecord | GeminiOverallRecord>;
+    aiPartial?: Record<string, LLMTopicPartialRecord | LLMOverallRecord>;
   };
   const partials = jobWithPartial.aiPartial || {};
-  let overall = partials.overall as GeminiOverallRecord | undefined;
-  const existingPartial = partials[normalizedTopic] as GeminiTopicPartialRecord | undefined;
+  let overall = partials.overall as LLMOverallRecord | undefined;
+  const existingPartial = partials[normalizedTopic] as
+    | LLMTopicPartialRecord
+    | undefined;
 
   if (existingPartial && !force) {
     return {
@@ -466,92 +463,73 @@ export const processGeminiTopic = async (params: {
 
   const topicGroup = findTopicGroup(normalizedTopic, topics);
   if (!topicGroup) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       400,
       `Topic ${normalizedTopic} is not available for this job`
     );
   }
 
   const usedKeys = new Set<string>();
+  const alreadySelectedTitles: string[] = [];
   for (const [key, partial] of Object.entries(partials)) {
-    if (key === 'overall') continue;
-    const p = partial as GeminiTopicPartialRecord;
+    if (key === "overall") continue;
+    const p = partial as LLMTopicPartialRecord;
     for (const item of p.section) {
       usedKeys.add(item.slug ?? item.link);
+      alreadySelectedTitles.push(item.title);
     }
   }
 
-  const { primary, candidates, candidateKeys } = buildCandidateSet(
-    topicGroup,
-    normalizedTopic,
-    topics,
-    limit,
-    extra,
-    usedKeys
-  );
+  // Limit context to prevent timeouts - only send most recent 12 titles
+  const limitedSelectedTitles = alreadySelectedTitles.slice(-12);
+
+  // For topic processing, send ALL available articles with the correct hint
+  // Don't limit or sample - let the LLM choose from the full dataset
+  const allTopicArticles = topicGroup.items.filter((item) => {
+    const key = getArticleKey(item);
+    return !usedKeys.has(key);
+  });
+
+  if (allTopicArticles.length === 0) {
+    throw new LLMTopicProcessingError(
+      400,
+      `No unused articles available for topic ${normalizedTopic}`
+    );
+  }
 
   const preClusterKey =
     normalizedTopic === "wildCard" ? "wildcard" : normalizedTopic;
   const preClustered = new Map<string, ProcessedNewsItem[]>([
-    [preClusterKey, primary],
+    [preClusterKey, allTopicArticles],
   ]);
 
-  const planResult = await generateNewsletterPlan(candidates, preClustered, {
-    topicKey: normalizedTopic,
-  });
+  const planResult = await generateNewsletterPlan(
+    allTopicArticles,
+    preClustered,
+    {
+      topicKey: normalizedTopic,
+      alreadySelectedTitles:
+        limitedSelectedTitles.length > 0 ? limitedSelectedTitles : undefined,
+    }
+  );
 
-  const filterPlanItem = (item: NewsletterSectionItem): boolean =>
-    candidateKeys.has(item.slug ?? item.link);
-
-  const sectionItems = planResult.plan[normalizedTopic].filter(filterPlanItem);
+  const sectionItems = planResult.plan[normalizedTopic].slice(
+    0,
+    SECTION_LIMITS[normalizedTopic]
+  ); // Take top N ranked articles based on section limits
   if (sectionItems.length === 0) {
-    throw new GeminiTopicProcessingError(
+    throw new LLMTopicProcessingError(
       500,
-      `Gemini returned no articles for topic ${normalizedTopic}`
+      `Groq returned no articles for topic ${normalizedTopic}`
     );
   }
 
-  const hasOverall = !!overall;
-  if (!hasOverall) {
-    const ref = doc(db, SEND_COLLECTION, resolvedSendId);
-    await runTransaction(db, async (transaction) => {
-      const snapshot = await transaction.get(ref);
-      if (!snapshot.exists()) {
-        throw new GeminiTopicProcessingError(
-          404,
-          `Newsletter job ${resolvedSendId} not found`
-        );
-      }
-      transaction.set(
-        ref,
-        {
-          aiPartial: {
-            overall: {
-              overview: planResult.plan.essentialReads.overview,
-              summary: planResult.plan.summary,
-              highlights: planResult.plan.essentialReads.highlights,
-              aiMetadata: planResult.metadata,
-            } as GeminiOverallRecord,
-          },
-        },
-        { merge: true }
-      );
-    });
-    // Update local overall
-    overall = {
-      overview: planResult.plan.essentialReads.overview,
-      summary: planResult.plan.summary,
-      highlights: planResult.plan.essentialReads.highlights,
-      aiMetadata: planResult.metadata,
-    } as GeminiOverallRecord;
-  }
-
-  const record: GeminiTopicPartialRecord = {
+  const record: LLMTopicPartialRecord = {
     topic: normalizedTopic,
     updatedAt: new Date().toISOString(),
     section: sectionItems,
     articlesUsed: sectionItems.length,
-    candidatesFetched: candidates.length,
+    candidatesFetched: allTopicArticles.length,
     aiMetadata: planResult.metadata,
     input: {
       limit,
@@ -560,14 +538,14 @@ export const processGeminiTopic = async (params: {
   };
 
   try {
-    await persistGeminiTopicPartial(
+    await persistLLMTopicPartial(
       resolvedSendId,
       normalizedTopic,
       record,
       force
     );
   } catch (error) {
-    if (error instanceof GeminiTopicAlreadyProcessedError) {
+    if (error instanceof LLMTopicAlreadyProcessedError) {
       return {
         status: "already-processed",
         message: "Topic already processed",
@@ -582,7 +560,7 @@ export const processGeminiTopic = async (params: {
         aiMetadata: overall?.aiMetadata || error.existing.aiMetadata,
       };
     }
-    if (error instanceof GeminiTopicProcessingError) {
+    if (error instanceof LLMTopicProcessingError) {
       throw error;
     }
     throw error;

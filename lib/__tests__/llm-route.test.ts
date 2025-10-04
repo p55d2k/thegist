@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import { POST } from "@/app/api/gemini/route";
+import { POST } from "@/app/api/llm/route";
 import {
   getNewsletterJob,
-  getNextNewsletterJobNeedingGemini,
+  getNextNewsletterJobNeedingLLM,
   saveNewsletterPlanStage,
 } from "@/lib/firestore";
-import { generateNewsletterPlan } from "@/lib/gemini";
+import { generateNewsletterPlan } from "@/lib/llm";
 
 const jobState = {
   store: new Map<string, any>(),
@@ -16,7 +16,7 @@ const jobState = {
 
 const firestoreDocStore = new Map<string, any>();
 
-vi.mock("@/lib/gemini", () => ({
+vi.mock("@/lib/llm", () => ({
   generateNewsletterPlan: vi.fn(),
 }));
 
@@ -80,14 +80,14 @@ vi.mock("firebase/firestore", () => {
 
 vi.mock("@/lib/firestore", () => ({
   getNewsletterJob: vi.fn(),
-  getNextNewsletterJobNeedingGemini: vi.fn(),
+  getNextNewsletterJobNeedingLLM: vi.fn(),
   saveNewsletterPlanStage: vi.fn(),
 }));
 
 const mockedGenerateNewsletterPlan = vi.mocked(generateNewsletterPlan);
 const mockedGetNewsletterJob = vi.mocked(getNewsletterJob);
-const mockedGetNextNewsletterJobNeedingGemini = vi.mocked(
-  getNextNewsletterJobNeedingGemini
+const mockedGetNextNewsletterJobNeedingLLM = vi.mocked(
+  getNextNewsletterJobNeedingLLM
 );
 const mockedSaveNewsletterPlanStage = vi.mocked(saveNewsletterPlanStage);
 
@@ -134,7 +134,7 @@ const resetFirestoreState = () => {
   firestoreDocStore.clear();
 };
 
-describe("/api/gemini route", () => {
+describe("/api/llm route", () => {
   beforeEach(() => {
     resetJobState();
     resetFirestoreState();
@@ -142,7 +142,7 @@ describe("/api/gemini route", () => {
     mockedGetNewsletterJob.mockImplementation((id: string) =>
       Promise.resolve(jobState.store.get(id) ?? null)
     );
-    mockedGetNextNewsletterJobNeedingGemini.mockImplementation(() =>
+    mockedGetNextNewsletterJobNeedingLLM.mockImplementation(() =>
       Promise.resolve(jobState.nextJob)
     );
     mockedSaveNewsletterPlanStage.mockResolvedValue();
@@ -167,7 +167,7 @@ describe("/api/gemini route", () => {
     firestoreDocStore.set("emailSends/job-1", { id: job.id });
 
     const response = await POST(
-      toRequest("http://localhost/api/gemini?topic=invalid", {
+      toRequest("http://localhost/api/llm?topic=invalid", {
         sendId: "job-1",
       })
     );
@@ -245,7 +245,7 @@ describe("/api/gemini route", () => {
     });
 
     const response = await POST(
-      toRequest("http://localhost/api/gemini?topic=commentaries", {
+      toRequest("http://localhost/api/llm?topic=commentaries", {
         sendId: "job-1",
       })
     );
@@ -323,7 +323,7 @@ describe("/api/gemini route", () => {
     });
 
     const response = await POST(
-      toRequest("http://localhost/api/gemini", {
+      toRequest("http://localhost/api/llm", {
         sendId: "job-1",
       })
     );
@@ -333,7 +333,7 @@ describe("/api/gemini route", () => {
     expect(payload.message).toBe("Topic processed");
     expect(payload.topic).toBe("commentaries");
     expect(payload.articlesUsed).toBe(1);
-    expect(payload.candidatesFetched).toBe(2);
+    expect(payload.candidatesFetched).toBe(1);
     expect(mockedGenerateNewsletterPlan).toHaveBeenCalledTimes(1);
 
     const stored = firestoreDocStore.get("emailSends/job-1");

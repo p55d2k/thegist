@@ -15,6 +15,7 @@ import {
   formatRawBody,
   formatBody,
   FormattedArticles,
+  computeTotalsFromPlan,
 } from "@/lib/email";
 
 const AUTH_HEADER = "authorization";
@@ -125,13 +126,15 @@ export async function POST(request: NextRequest) {
   let formattedRawText = job.formattedRawText;
 
   if (!formattedHtml && job.plan) {
+    const { totalArticles, totalTopics, totalPublishers } =
+      computeTotalsFromPlan(job.plan);
     const formatted: FormattedArticles = {
       plan: job.plan,
       html: "",
       text: "",
-      totalTopics: 0,
-      totalArticles: 0,
-      totalPublishers: 0,
+      totalTopics,
+      totalArticles,
+      totalPublishers,
       aiMetadata: job.aiMetadata || { model: "unknown", usedFallback: false },
     };
     formatted.html = buildHtml(formatted);
@@ -143,8 +146,7 @@ export async function POST(request: NextRequest) {
   if (!formattedHtml || !formattedRawText) {
     return NextResponse.json(
       {
-        error:
-          "Newsletter job missing formatted content. Run /api/gemini first.",
+        error: "Newsletter job missing formatted content. Run /api/llm first.",
       },
       { status: 400 }
     );

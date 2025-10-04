@@ -20,6 +20,7 @@ import {
   computeArticlesSummary,
   mergeSerializedTopics,
 } from "@/lib/news-helpers";
+import { computeTotalsFromPlan } from "@/lib/email";
 
 export interface Subscriber {
   email: string;
@@ -121,7 +122,7 @@ export interface NewsletterJob extends EmailSendStatus {
   // present in existing documents but are no longer produced by the current
   // news collection pipeline.
   pendingRecipients?: string[];
-  plan?: GeminiNewsletterPlan;
+  plan?: LLMNewsletterPlan;
   formattedHtml?: string;
   formattedText?: string;
   formattedRawText?: string;
@@ -407,9 +408,9 @@ export async function getNewsletterJob(
 
 // Legacy helper removed: clustering is now handled as part of the news
 // collection pipeline. Keep the job selection logic centered on `news-ready`
-// for Gemini consumers.
+// for LLM plan consumers.
 
-export async function getNextNewsletterJobNeedingGemini(): Promise<{
+export async function getNextNewsletterJobNeedingLLM(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
@@ -477,7 +478,7 @@ export async function markNewsletterJobAsSending(id: string): Promise<void> {
 export async function saveNewsletterPlanStage(
   id: string,
   payload: {
-    plan: GeminiNewsletterPlan;
+    plan: LLMNewsletterPlan;
     aiMetadata: NewsletterJob["aiMetadata"];
     summaryText: string;
     emailSubject: string;
@@ -495,6 +496,8 @@ export async function saveNewsletterPlanStage(
     const remainingCount =
       job.pendingRecipientsCount ?? job.pendingRecipients?.length ?? 0;
 
+    const totals = computeTotalsFromPlan(payload.plan);
+
     const update: Partial<NewsletterJob> & Record<string, unknown> = {
       plan: payload.plan,
       aiMetadata: payload.aiMetadata,
@@ -503,9 +506,13 @@ export async function saveNewsletterPlanStage(
       planGeneratedAt: new Date(),
       status: remainingCount > 0 ? "ready-to-send" : "success",
       pendingRecipientsCount: remainingCount,
+      articlesSummary: totals,
     };
 
     (update as Record<string, unknown>).error = deleteField();
+    (update as Record<string, unknown>).formattedHtml = deleteField();
+    (update as Record<string, unknown>).formattedText = deleteField();
+    (update as Record<string, unknown>).formattedRawText = deleteField();
 
     if (remainingCount === 0) {
       update.completedAt = new Date();

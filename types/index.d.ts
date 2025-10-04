@@ -72,7 +72,7 @@ interface NewsletterSectionItem {
   sectionHints: NewsletterSectionHint[];
 }
 
-interface GeminiNewsletterPlan {
+interface LLMNewsletterPlan {
   essentialReads: {
     overview: string;
     highlights: NewsletterSectionItem[];
