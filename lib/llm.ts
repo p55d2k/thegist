@@ -271,7 +271,7 @@ const createSectionItemFromArticle = (
     return articleCache.get(cacheKey)!;
   }
 
-  const cleanedTitle = condense(article.title);
+  const cleanedTitle = condense(decodeHtmlEntities(article.title));
 
   const item: NewsletterSectionItem = {
     title: cleanedTitle,

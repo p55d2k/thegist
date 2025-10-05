@@ -17,7 +17,6 @@ export const EMAIL_CONTENT = {
   dateLocale: "en-SG" as const,
   dateOptions: {
     dateStyle: "medium" as const,
-    timeStyle: "short" as const,
   },
 } as const;
 

@@ -505,8 +505,8 @@ export async function getNewsletterJob(
             const slug = (s.slug || "").toLowerCase();
             const link = (s.link || "").toLowerCase();
             const found =
-              (slug && topicsIndex.get(slug)) ||
-              (link && topicsIndex.get(link));
+              (link && topicsIndex.get(link)) ||
+              (slug && topicsIndex.get(slug));
             if (found) {
               // Build NewsletterSectionItem-like object
               const pubDateValue = found.pubDate;

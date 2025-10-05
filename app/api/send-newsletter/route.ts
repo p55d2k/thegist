@@ -159,6 +159,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (job.status === "sending") {
+    return NextResponse.json(
+      { message: "Job is currently being sent", sendId },
+      { status: 200 }
+    );
+  }
+
   const batchSize = Math.max(1, job.batchSize ?? DEFAULT_LIMITS.batchSize);
 
   const maxBatches = Number.isFinite(payload.maxBatches)
