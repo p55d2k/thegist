@@ -43,33 +43,84 @@ vi.mock("firebase/firestore", () => {
     return output;
   };
 
+  const toPathKey = (segments: string[]): string => segments.join("/");
+
+  const mirrorAiPartialToParent = (ref: any, value: any | undefined) => {
+    if (!ref.parentDocPath || !ref.meta?.isAiPartial) {
+      return;
+    }
+
+    const parentDoc = firestoreDocStore.get(ref.parentDocPath) ?? {};
+    const nextAiPartial = { ...(parentDoc.aiPartial ?? {}) };
+
+    if (value === undefined) {
+      delete nextAiPartial[ref.id];
+    } else {
+      nextAiPartial[ref.id] = value;
+    }
+
+    parentDoc.aiPartial = nextAiPartial;
+    firestoreDocStore.set(ref.parentDocPath, parentDoc);
+  };
+
   return {
-    doc: (_db: unknown, collection: string, id: string) => ({
-      collection,
-      id,
-    }),
+    doc: (_db: unknown, ...segments: string[]) => {
+      if (segments.length < 2 || segments.length % 2 !== 0) {
+        throw new Error("Invalid Firestore document path segments");
+      }
+
+      const path = toPathKey(segments);
+      const collection = segments[segments.length - 2];
+      const id = segments[segments.length - 1];
+      const parentDocSegments = segments.slice(0, -2);
+      const parentDocPath = parentDocSegments.length
+        ? toPathKey(parentDocSegments)
+        : undefined;
+
+      return {
+        path,
+        collection,
+        id,
+        parentDocPath,
+        meta: {
+          isAiPartial:
+            segments.length >= 4 &&
+            segments[segments.length - 2] === "aiPartial",
+        },
+      };
+    },
     runTransaction: vi.fn(async (_db, updater) => {
       const transaction = {
-        async get(ref: { collection: string; id: string }) {
-          const key = `${ref.collection}/${ref.id}`;
-          const data = firestoreDocStore.get(key);
+        async get(ref: { path: string }) {
+          const data = firestoreDocStore.get(ref.path);
           return {
             exists: () => data !== undefined,
             data: () => data,
           };
         },
         set(
-          ref: { collection: string; id: string },
+          ref: { path: string; parentDocPath?: string; meta?: any; id: string },
           value: any,
           options?: { merge?: boolean }
         ) {
-          const key = `${ref.collection}/${ref.id}`;
           if (options?.merge) {
-            const current = firestoreDocStore.get(key) ?? {};
-            firestoreDocStore.set(key, deepMerge(current, value));
+            const current = firestoreDocStore.get(ref.path) ?? {};
+            const merged = deepMerge(current, value);
+            firestoreDocStore.set(ref.path, merged);
+            mirrorAiPartialToParent(ref, merged);
           } else {
-            firestoreDocStore.set(key, value);
+            firestoreDocStore.set(ref.path, value);
+            mirrorAiPartialToParent(ref, value);
           }
+        },
+        delete(ref: {
+          path: string;
+          parentDocPath?: string;
+          meta?: any;
+          id: string;
+        }) {
+          firestoreDocStore.delete(ref.path);
+          mirrorAiPartialToParent(ref, undefined);
         },
       };
 
@@ -253,12 +304,21 @@ describe("/api/llm route", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload.message).toBe("Topic processed");
+    expect(payload.topic).toBe("commentaries");
     expect(payload.articlesUsed).toBe(1);
     expect(payload.candidatesFetched).toBe(1);
 
     const stored = firestoreDocStore.get("emailSends/job-1");
     expect(stored).toBeDefined();
     expect(stored.aiPartial.commentaries.section).toHaveLength(1);
+    // Verify compact storage: only essential fields stored
+    expect(stored.aiPartial.commentaries.section[0]).toEqual({
+      title: "Highlight",
+      link: "https://example.com/a1",
+      slug: itemSlug,
+      pubDate: expect.any(String),
+      publisher: "Publisher",
+    });
   });
 
   it("processes one topic incrementally when no topic specified", async () => {
@@ -335,10 +395,17 @@ describe("/api/llm route", () => {
     expect(payload.articlesUsed).toBe(1);
     expect(payload.candidatesFetched).toBe(1);
     expect(mockedGenerateNewsletterPlan).toHaveBeenCalledTimes(1);
-
     const stored = firestoreDocStore.get("emailSends/job-1");
     expect(stored).toBeDefined();
     expect(stored.aiPartial.commentaries.section).toHaveLength(1);
+    // Verify compact storage: only essential fields stored
+    expect(stored.aiPartial.commentaries.section[0]).toEqual({
+      title: "Commentary",
+      link: "https://example.com/a1",
+      slug: firstSlug,
+      pubDate: expect.any(String),
+      publisher: "Publisher",
+    });
     expect(stored.aiPartial.business).toBeUndefined();
   });
 });

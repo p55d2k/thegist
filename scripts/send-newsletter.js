@@ -68,7 +68,7 @@ const CONFIG = (() => {
       min: 1,
       max: 600,
     }),
-    llmDelayMs: parseInteger("NEWSLETTER_LLM_DELAY_MS", 5_000, {
+    llmDelayMs: parseInteger("NEWSLETTER_LLM_DELAY_MS", 20_000, {
       min: 0,
       max: 60_000,
     }),

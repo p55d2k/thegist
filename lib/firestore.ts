@@ -12,6 +12,7 @@ import {
   getDoc,
   deleteField,
   runTransaction,
+  deleteDoc,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
@@ -58,6 +59,10 @@ export interface EmailSendStatus {
 }
 
 const SEND_COLLECTION = "emailSends";
+const TOPIC_DOC_ID_PAD = 4;
+
+const formatTopicDocId = (index: number): string =>
+  `topic_${index.toString().padStart(TOPIC_DOC_ID_PAD, "0")}`;
 
 const generateSendId = (): string => uuidv4();
 
@@ -120,9 +125,11 @@ export interface NewsletterJob extends EmailSendStatus {
   topics?: SerializedTopicNewsGroup[];
   // Legacy clustering/deduplication fields from older workflows may still be
   // present in existing documents but are no longer produced by the current
-  // news collection pipeline.
+  // news collection pipeline. Keep the job selection logic centered on `news-ready`
+  // for LLM plan consumers.
   pendingRecipients?: string[];
   plan?: LLMNewsletterPlan;
+  planId?: string; // Reference to the plan in newsletterPlans collection
   formattedHtml?: string;
   formattedText?: string;
   formattedRawText?: string;
@@ -217,7 +224,7 @@ export async function createNewsletterJobFromNews(payload: {
       failedRecipients: 0,
       pendingRecipientsCount: payload.recipients.length,
       articlesSummary: payload.articlesSummary,
-      topics: payload.topics,
+      // topics: payload.topics, // Removed - now stored in subcollection
       pendingRecipients: payload.recipients,
       batchSize: payload.batchSize,
       newsFetchedAt: now,
@@ -231,6 +238,9 @@ export async function createNewsletterJobFromNews(payload: {
       job.pendingRecipients = [];
       job.completedAt = now;
     }
+
+    // Save topics to subcollection
+    await saveTopicsToSubcollection(id, payload.topics);
 
     await setDoc(ref, job);
     return job;
@@ -281,6 +291,11 @@ export async function appendNewsBatchToJob(params: {
   newTopics: SerializedTopicNewsGroup[];
   cursorIncrement: number;
   totalSources: number;
+  // Optional: the incoming articles summary computed at fetch time (before any
+  // trimming/compaction) so job-level totals reflect the initial fetched data.
+  incomingArticlesSummary?: EmailSendStatus["articlesSummary"];
+  // Optional: number of articles in the incoming batch (pre-trim)
+  incomingAppendedArticles?: number;
 }): Promise<{
   newsCursor: number;
   sourcesTotal: number;
@@ -292,6 +307,23 @@ export async function appendNewsBatchToJob(params: {
 }> {
   const { id, expectedCursor, newTopics, cursorIncrement, totalSources } =
     params;
+
+  const topicsCollectionRef = collection(db, SEND_COLLECTION, id, "topics");
+  const existingTopicsSnapshot = await getDocs(
+    query(topicsCollectionRef, orderBy("__name__"))
+  );
+  const existingTopics: SerializedTopicNewsGroup[] = [];
+  existingTopicsSnapshot.forEach((docSnapshot) => {
+    existingTopics.push(docSnapshot.data() as SerializedTopicNewsGroup);
+  });
+
+  const mergeResult = mergeSerializedTopics(existingTopics, newTopics);
+  const mergedTopics = mergeResult.topics;
+  const appendedArticlesCount =
+    params.incomingAppendedArticles ?? mergeResult.appendedArticles;
+  const articlesSummary =
+    params.incomingArticlesSummary ?? computeArticlesSummary(mergedTopics);
+  const shouldRewriteTopics = mergeResult.appendedArticles > 0;
 
   return runTransaction(db, async (transaction) => {
     const ref = doc(db, SEND_COLLECTION, id);
@@ -313,11 +345,6 @@ export async function appendNewsBatchToJob(params: {
       jobData.sourcesTotal ?? 0
     );
 
-    const { topics: mergedTopics, appendedArticles } = mergeSerializedTopics(
-      jobData.topics,
-      newTopics
-    );
-
     const newCursor = Math.min(
       resolvedSourcesTotal,
       currentCursor + cursorIncrement
@@ -325,14 +352,14 @@ export async function appendNewsBatchToJob(params: {
     const isComplete = newCursor >= resolvedSourcesTotal;
     const now = new Date();
 
-    const articlesSummary = computeArticlesSummary(mergedTopics);
-
+    // Prefer the incoming summary (computed by the fetch step) so totals
+    // represent the original data before any server-side trimming/compaction.
     const nextStatus = isComplete ? "news-ready" : "news-collecting";
 
     transaction.set(
       ref,
       {
-        topics: mergedTopics,
+        // topics: mergedTopics, // Removed - now stored in subcollection
         newsCursor: newCursor,
         sourcesTotal: resolvedSourcesTotal,
         articlesSummary,
@@ -343,12 +370,23 @@ export async function appendNewsBatchToJob(params: {
       { merge: true }
     );
 
+    if (shouldRewriteTopics) {
+      existingTopicsSnapshot.forEach((topicDoc) => {
+        transaction.delete(topicDoc.ref);
+      });
+
+      mergedTopics.forEach((topic, index) => {
+        const topicRef = doc(topicsCollectionRef, formatTopicDocId(index));
+        transaction.set(topicRef, topic);
+      });
+    }
+
     return {
       newsCursor: newCursor,
       sourcesTotal: resolvedSourcesTotal,
       status: nextStatus,
       articlesSummary,
-      appendedArticles,
+      appendedArticles: appendedArticlesCount,
       totalRecipients: jobData.totalRecipients,
       pendingRecipientsCount:
         jobData.pendingRecipientsCount ??
@@ -399,7 +437,132 @@ export async function getNewsletterJob(
     if (!snapshot.exists()) {
       return null;
     }
-    return snapshot.data() as NewsletterJob;
+    const job = snapshot.data() as NewsletterJob & {
+      aiPartial?: Record<string, any>;
+    };
+
+    // Load aiPartial from subcollection
+    try {
+      const aiPartialCollection = collection(
+        db,
+        SEND_COLLECTION,
+        id,
+        "aiPartial"
+      );
+      const aiPartialSnapshot = await getDocs(aiPartialCollection);
+      const aiPartial: Record<string, any> = {};
+      aiPartialSnapshot.forEach((doc) => {
+        aiPartial[doc.id] = doc.data();
+      });
+      if (Object.keys(aiPartial).length > 0) {
+        job.aiPartial = aiPartial;
+      }
+    } catch (error) {
+      console.warn("Failed to load aiPartial from subcollection:", error);
+    }
+
+    // Load topics from subcollection
+    try {
+      job.topics = await loadTopicsFromSubcollection(id);
+    } catch (error) {
+      console.warn("Failed to load topics from subcollection:", error);
+    }
+
+    // If planId exists but plan is not loaded, load it from the separate collection
+    if (job.planId && !job.plan) {
+      const loadedPlan = await getNewsletterPlan(job.planId);
+      if (loadedPlan) {
+        job.plan = loadedPlan;
+      }
+    }
+
+    // Rehydrate compact aiPartial sections saved by the LLM pipeline. To
+    // conserve Firestore storage we persist a compact representation of
+    // selected articles (title, link, slug, pubDate, publisher). Downstream
+    // consumers expect full NewsletterSectionItem objects (including summary,
+    // source, sectionHints). Try to find matching articles in job.topics and
+    // augment the compact entries. If no match is found, keep the compact
+    // record to avoid losing data.
+    if (job.aiPartial && job.topics) {
+      try {
+        const topicsIndex = new Map<string, any>();
+        for (const group of job.topics) {
+          for (const article of group.items) {
+            const keySlug = (article.slug || "").toLowerCase();
+            if (keySlug) {
+              topicsIndex.set(keySlug, article);
+            }
+            const keyLink = (article.link || "").toLowerCase();
+            topicsIndex.set(keyLink, article);
+          }
+        }
+
+        const augmented: Record<string, any> = {};
+        for (const [key, value] of Object.entries(job.aiPartial)) {
+          const rec = value as any;
+          const section = Array.isArray(rec.section) ? rec.section : [];
+          const expanded = section.map((s: any) => {
+            const slug = (s.slug || "").toLowerCase();
+            const link = (s.link || "").toLowerCase();
+            const found =
+              (slug && topicsIndex.get(slug)) ||
+              (link && topicsIndex.get(link));
+            if (found) {
+              // Build NewsletterSectionItem-like object
+              const pubDateValue = found.pubDate;
+              const pubDateStr =
+                typeof pubDateValue === "string"
+                  ? pubDateValue
+                  : pubDateValue &&
+                    typeof (pubDateValue as any).toISOString === "function"
+                  ? (pubDateValue as any).toISOString()
+                  : String(pubDateValue ?? "");
+
+              return {
+                title: s.title ?? found.title,
+                summary:
+                  s.summary ??
+                  (found.description ? String(found.description) : ""),
+                link: found.link,
+                publisher: found.publisher,
+                topic: found.topic,
+                slug: found.slug,
+                source: found.source,
+                pubDate: pubDateStr,
+                sectionHints: found.sectionHints ?? [],
+              } as NewsletterSectionItem;
+            }
+            // Fallback: return compact shape as-is but ensure pubDate is string
+            return {
+              title: s.title,
+              summary: s.summary ?? "",
+              link: s.link,
+              publisher: s.publisher,
+              topic: s.topic ?? "",
+              slug: s.slug,
+              source: s.source ?? "",
+              pubDate:
+                typeof s.pubDate === "string"
+                  ? s.pubDate
+                  : String(s.pubDate ?? ""),
+              sectionHints: s.sectionHints ?? [],
+            } as NewsletterSectionItem;
+          });
+
+          augmented[key] = {
+            ...rec,
+            section: expanded,
+          };
+        }
+
+        (job as any).aiPartial = augmented;
+      } catch (err) {
+        // If anything fails during augmentation, leave aiPartial as stored
+        console.warn("Failed to expand aiPartial compact records:", err);
+      }
+    }
+
+    return job;
   } catch (error) {
     console.error("Error fetching newsletter job:", error);
     throw new Error("Failed to load newsletter job");
@@ -498,8 +661,11 @@ export async function saveNewsletterPlanStage(
 
     const totals = computeTotalsFromPlan(payload.plan);
 
+    // Save the plan in a separate collection
+    await saveNewsletterPlan(id, payload.plan);
+
     const update: Partial<NewsletterJob> & Record<string, unknown> = {
-      plan: payload.plan,
+      planId: id, // Reference to the plan
       aiMetadata: payload.aiMetadata,
       summaryText: payload.summaryText,
       emailSubject: payload.emailSubject,
@@ -521,6 +687,9 @@ export async function saveNewsletterPlanStage(
       (update as Record<string, unknown>).formattedHtml = deleteField();
       (update as Record<string, unknown>).formattedText = deleteField();
       (update as Record<string, unknown>).formattedRawText = deleteField();
+
+      // Delete topics from subcollection
+      await deleteTopicsSubcollection(id);
     }
 
     await setDoc(ref, update, { merge: true });
@@ -597,6 +766,9 @@ export async function recordNewsletterSendBatch(
       (update as Record<string, unknown>).formattedHtml = deleteField();
       (update as Record<string, unknown>).formattedText = deleteField();
       (update as Record<string, unknown>).formattedRawText = deleteField();
+
+      // Delete topics from subcollection
+      await deleteTopicsSubcollection(id);
     }
 
     await setDoc(ref, update, { merge: true });
@@ -688,5 +860,104 @@ export async function getRecentEmailSends(
   } catch (error) {
     console.error("Error getting recent email sends:", error);
     throw new Error("Failed to get recent email sends");
+  }
+}
+
+export async function saveNewsletterPlan(
+  id: string,
+  plan: LLMNewsletterPlan
+): Promise<void> {
+  try {
+    const ref = doc(db, "newsletterPlans", id);
+    await setDoc(ref, {
+      plan,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    console.error("Error saving newsletter plan:", error);
+    throw new Error("Failed to save newsletter plan");
+  }
+}
+
+export async function getNewsletterPlan(
+  id: string
+): Promise<LLMNewsletterPlan | null> {
+  try {
+    const ref = doc(db, "newsletterPlans", id);
+    const snapshot = await getDoc(ref);
+    if (!snapshot.exists()) {
+      return null;
+    }
+    const data = snapshot.data();
+    return data.plan as LLMNewsletterPlan;
+  } catch (error) {
+    console.error("Error getting newsletter plan:", error);
+    throw new Error("Failed to get newsletter plan");
+  }
+}
+
+// Topics subcollection helpers --------------------------------------------
+
+export async function saveTopicsToSubcollection(
+  sendId: string,
+  topics: SerializedTopicNewsGroup[]
+): Promise<void> {
+  try {
+    const operations: Promise<void>[] = [];
+    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
+
+    // Delete existing topics first
+    const existingSnapshot = await getDocs(topicsRef);
+    existingSnapshot.forEach((doc) => {
+      operations.push(deleteDoc(doc.ref));
+    });
+
+    // Add new topics
+    topics.forEach((topic, index) => {
+      const topicRef = doc(topicsRef, formatTopicDocId(index));
+      operations.push(setDoc(topicRef, topic));
+    });
+
+    // Execute all operations
+    await Promise.all(operations);
+  } catch (error) {
+    console.error("Error saving topics to subcollection:", error);
+    throw new Error("Failed to save topics to subcollection");
+  }
+}
+
+export async function loadTopicsFromSubcollection(
+  sendId: string
+): Promise<SerializedTopicNewsGroup[]> {
+  try {
+    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
+    const snapshot = await getDocs(query(topicsRef, orderBy("__name__")));
+
+    const topics: SerializedTopicNewsGroup[] = [];
+    snapshot.forEach((doc) => {
+      topics.push(doc.data() as SerializedTopicNewsGroup);
+    });
+
+    return topics;
+  } catch (error) {
+    console.error("Error loading topics from subcollection:", error);
+    throw new Error("Failed to load topics from subcollection");
+  }
+}
+
+export async function deleteTopicsSubcollection(sendId: string): Promise<void> {
+  try {
+    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
+    const snapshot = await getDocs(topicsRef);
+
+    const operations: Promise<void>[] = [];
+    snapshot.forEach((doc) => {
+      operations.push(deleteDoc(doc.ref));
+    });
+
+    await Promise.all(operations);
+  } catch (error) {
+    console.error("Error deleting topics subcollection:", error);
+    // Don't throw - cleanup failures shouldn't break the flow
   }
 }

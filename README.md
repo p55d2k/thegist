@@ -447,12 +447,12 @@ You can fine-tune the automation loop by adding repository variables. Leave them
 #### Manual and local execution
 
 - **Manual GitHub run** – Use the "Run workflow" button and optionally supply an existing `sendId`.
-- **Local testing** – Run the script with Node.js 20+ after exporting the required environment variables:
+- **Local testing** – Run the script with Bun after exporting the required environment variables:
 
   ```bash
   export NEWSLETTER_API_BASE_URL="https://your-production-domain"
   export NEWSLETTER_JOB_TOKEN="super-secret-token"
-  node scripts/send-newsletter.js
+  bun scripts/send-newsletter.js
   ```
 
 The script logs each phase, retries transient errors, and exits with a non-zero status if the newsletter fails to send.

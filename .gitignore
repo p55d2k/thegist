@@ -40,3 +40,7 @@ ideas/
 
 # feeds
 feeds.txt
+
+# cloudflare deployment configs
+.open-next
+.wrangler

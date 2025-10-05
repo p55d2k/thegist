@@ -64,7 +64,12 @@ export async function GET(req: NextRequest) {
     ? Math.max(1, Math.min(parsedSources, Math.max(1, totalSources)))
     : defaultSourcesPerRun;
 
-  const oneWeekAgo = new Date(Date.now() - 7 * ONE_DAY_MS);
+  const maxAgeParam = searchParams.get("maxAgeDays");
+  const parsedMaxAge = Number.isFinite(Number(maxAgeParam))
+    ? Math.max(0, Number.parseInt(maxAgeParam ?? "7", 10))
+    : 7;
+
+  const oneWeekAgo = new Date(Date.now() - parsedMaxAge * ONE_DAY_MS);
 
   if (!persist) {
     const newsResult = await fetchNewsForLinks(links, oneWeekAgo);
@@ -72,6 +77,7 @@ export async function GET(req: NextRequest) {
     const basePayload: Record<string, unknown> = {
       message: `Retrieved ${newsResult.allNews.length} items across ${newsResult.topics.length} topic feeds`,
       count: newsResult.allNews.length,
+      maxAgeDays: parsedMaxAge,
     };
 
     const fullPayload = {
@@ -131,6 +137,8 @@ export async function GET(req: NextRequest) {
       newTopics: newsResult.serializedTopics,
       cursorIncrement: slice.length,
       totalSources: resolvedSourcesTotal,
+      incomingArticlesSummary: newsResult.articlesSummary,
+      incomingAppendedArticles: newsResult.allNews.length,
     });
 
     message =

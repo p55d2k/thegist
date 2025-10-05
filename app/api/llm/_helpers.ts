@@ -372,24 +372,42 @@ const persistLLMTopicPartial = async (
       );
     }
 
-    const data = snapshot.data() as NewsletterJob & {
-      aiPartial?: Record<string, LLMTopicPartialRecord>;
-    };
-    const existing = data.aiPartial?.[topic];
-
-    if (existing && !force) {
+    // Check if topic is already processed (for force=false)
+    const partialRef = doc(db, SEND_COLLECTION, sendId, "aiPartial", topic);
+    const partialSnapshot = await transaction.get(partialRef);
+    if (partialSnapshot.exists() && !force) {
+      const existing = partialSnapshot.data() as LLMTopicPartialRecord;
       throw new LLMTopicAlreadyProcessedError(existing);
     }
 
-    transaction.set(
-      ref,
-      {
-        aiPartial: {
-          [topic]: record,
-        },
-      },
-      { merge: true }
-    );
+    // To avoid storing large article objects in the main emailSends document
+    // (Firestore has a 1MiB document limit), persist a compact representation
+    // of the selected articles for the topic. Keep only the smallest useful
+    // fields that allow rehydration or display: title, link, slug, pubDate,
+    // and publisher. This should drastically reduce stored size while
+    // preserving necessary information for downstream steps.
+    const compactSection = (record.section || []).map((item) => ({
+      title: item.title,
+      link: item.link,
+      slug: item.slug,
+      // pubDate may already be an ISO string in many code paths; support
+      // both Date and string here.
+      pubDate:
+        typeof item.pubDate === "string"
+          ? item.pubDate
+          : item.pubDate && typeof (item as any).toISOString === "function"
+          ? (item as any).toISOString()
+          : undefined,
+      publisher: item.publisher,
+    }));
+
+    const compactRecord: LLMTopicPartialRecord = {
+      ...record,
+      section: compactSection as unknown as NewsletterSectionItem[],
+    };
+
+    // Save to subcollection instead of main document
+    transaction.set(partialRef, compactRecord);
   });
 };
 
@@ -503,24 +521,66 @@ export const processTopicWithLLM = async (params: {
     [preClusterKey, allTopicArticles],
   ]);
 
-  const planResult = await generateNewsletterPlan(
-    allTopicArticles,
-    preClustered,
-    {
-      topicKey: normalizedTopic,
-      alreadySelectedTitles:
-        limitedSelectedTitles.length > 0 ? limitedSelectedTitles : undefined,
-    }
-  );
+  let sectionItems: NewsletterSectionItem[];
+  let planMetadata: {
+    model: string;
+    usedFallback: boolean;
+    fallbackReason?: string;
+  };
 
-  const sectionItems = planResult.plan[normalizedTopic].slice(
-    0,
-    SECTION_LIMITS[normalizedTopic]
-  ); // Take top N ranked articles based on section limits
+  if (normalizedTopic === "wildCard") {
+    // For wildcard, just select the most recent strange news without using GPT
+    // Filter to only articles tagged with wildcard/strange section hints
+    const strangeArticles = allTopicArticles.filter((item) =>
+      item.sectionHints?.some(
+        (hint) =>
+          hint.toLowerCase().includes("wildcard") ||
+          hint.toLowerCase().includes("strange")
+      )
+    );
+    const sortedArticles = strangeArticles.sort(
+      (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
+    );
+    sectionItems = sortedArticles
+      .slice(0, SECTION_LIMITS.wildCard)
+      .map((item) => ({
+        title: item.title,
+        summary: item.description || "",
+        link: item.link,
+        publisher: item.publisher,
+        topic: item.topic,
+        slug: item.slug,
+        source: item.source,
+        pubDate: item.pubDate.toISOString(),
+        sectionHints: item.sectionHints,
+      }));
+    planMetadata = {
+      model: "fallback",
+      usedFallback: true,
+      fallbackReason: "Wildcard uses most recent strange articles without LLM",
+    };
+  } else {
+    const planResult = await generateNewsletterPlan(
+      allTopicArticles,
+      preClustered,
+      {
+        topicKey: normalizedTopic,
+        alreadySelectedTitles:
+          limitedSelectedTitles.length > 0 ? limitedSelectedTitles : undefined,
+      }
+    );
+
+    sectionItems = planResult.plan[normalizedTopic].slice(
+      0,
+      SECTION_LIMITS[normalizedTopic]
+    ); // Take top N ranked articles based on section limits
+    planMetadata = planResult.metadata;
+  }
+
   if (sectionItems.length === 0) {
     throw new LLMTopicProcessingError(
       500,
-      `Groq returned no articles for topic ${normalizedTopic}`
+      `No articles available for topic ${normalizedTopic}`
     );
   }
 
@@ -530,7 +590,7 @@ export const processTopicWithLLM = async (params: {
     section: sectionItems,
     articlesUsed: sectionItems.length,
     candidatesFetched: allTopicArticles.length,
-    aiMetadata: planResult.metadata,
+    aiMetadata: planMetadata,
     input: {
       limit,
       extra,
