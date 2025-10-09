@@ -1081,17 +1081,6 @@ export const links: TopicLink[] = [
     tags: ["strange", "wildcard"],
   },
   {
-    publisher: "Futility Closet",
-    topic: "All Stories",
-    slug: "futilitycloset-all-stories",
-    url: "https://www.futilitycloset.com/feed/",
-    sectionHints: ["wildcard"],
-    description: "Curious and strange stories from Futility Closet.",
-    region: "INT",
-    language: "en",
-    tags: ["strange", "curious", "wildcard"],
-  },
-  {
     publisher: "The Anomalist",
     topic: "Anomalies & Strange News",
     slug: "theanomalist-strange-news",
