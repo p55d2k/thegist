@@ -44,3 +44,6 @@ feeds.txt
 # cloudflare deployment configs
 .open-next
 .wrangler
+
+# docs (deprecated)
+docs/

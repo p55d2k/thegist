@@ -13,6 +13,7 @@ import {
   deleteField,
   runTransaction,
   deleteDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
@@ -159,11 +160,14 @@ export async function addSubscriber(email: string): Promise<boolean> {
       return false;
     }
 
-    await addDoc(subscribersRef, {
+    const payload = {
       email: email.toLowerCase().trim(),
-      subscribedAt: new Date(),
+      // Use serverTimestamp to avoid client-side Date serialization issues
+      subscribedAt: serverTimestamp(),
       isActive: true,
-    });
+    };
+
+    await addDoc(subscribersRef, payload);
 
     return true;
   } catch (error) {

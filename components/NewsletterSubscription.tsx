@@ -176,18 +176,6 @@ export default function NewsletterSubscription({
         </motion.button>
       </form>
 
-      {/* Show a small hint when running locally about recaptcha */}
-      {typeof window !== "undefined" &&
-        (window.location.hostname === "localhost" ||
-          window.location.hostname === "127.0.0.1" ||
-          window.location.hostname === "::1") && (
-          <div className="mt-3 text-center text-[11px] text-slate-400">
-            reCAPTCHA is skipped on localhost to avoid domain restriction
-            warnings. Create a key that includes &quot;localhost&quot; in the
-            allowed domains to test reCAPTCHA locally.
-          </div>
-        )}
-
       {message && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
