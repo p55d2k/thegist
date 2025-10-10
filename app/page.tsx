@@ -295,7 +295,7 @@ const Home = () => {
             </motion.div>
           </section>
 
-          <footer className="grid gap-6 text-sm text-slate-400 sm:grid-cols-2 sm:items-center">
+          <footer className="grid gap-6 text-sm text-slate-400 md:grid-cols-2 md:items-center">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-sm font-bold text-white">
                 <Logo dark className="h-7 w-7" />
@@ -307,27 +307,39 @@ const Home = () => {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap justify-end gap-3 text-slate-400">
+            <div className="flex flex-wrap justify-center gap-2 text-slate-400 md:justify-end md:gap-3">
               <Link
                 href="https://github.com/p55d2k/thegist"
                 target="_blank"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:border-white/30 hover:text-white sm:px-4 sm:text-sm"
               >
                 GitHub
-                <FiExternalLink />
+                <FiExternalLink className="text-xs sm:text-base" />
               </Link>
               <Link
                 href="mailto:zknewsletter@gmail.com"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:border-white/30 hover:text-white sm:px-4 sm:text-sm"
               >
                 Contact
-                <FiMail />
+                <FiMail className="text-xs sm:text-base" />
               </Link>
               <Link
                 href="/status"
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:border-white/30 hover:text-white sm:px-4 sm:text-sm"
               >
                 <span>Status</span>
+              </Link>
+              <Link
+                href="/privacy"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:border-white/30 hover:text-white sm:px-4 sm:text-sm"
+              >
+                <span>Privacy</span>
+              </Link>
+              <Link
+                href="/terms"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:border-white/30 hover:text-white sm:px-4 sm:text-sm"
+              >
+                <span>Terms</span>
               </Link>
             </div>
           </footer>
