@@ -723,3 +723,32 @@ export const computeTotalsFromPlan = (
     totalPublishers: seenPublishers.size,
   };
 };
+
+export async function isValidEmail(email: string): Promise<boolean> {
+  // Basic regex check first - if this fails, don't bother calling API
+  const basicRegexCheck = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!basicRegexCheck) {
+    return false;
+  }
+
+  try {
+    const response = await fetch(
+      `https://www.disify.com/api/email/${encodeURIComponent(email)}`
+    );
+
+    if (!response.ok) {
+      // API unavailable, but regex passed so return true (basic validation)
+      return true;
+    }
+
+    const data = await response.json();
+
+    // Return API validation result
+    return (
+      data.format === true && data.dns === true && data.disposable === false
+    );
+  } catch (error) {
+    // Network error or other failure, but regex passed so return true
+    return true;
+  }
+}

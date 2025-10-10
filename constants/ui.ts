@@ -9,13 +9,13 @@ export const HOME_CONTENT = {
 
   howItWorks: [
     {
-      icon: "robot",
+      icon: "search",
       title: "AI does the reading",
       description:
         "Our AI skims major outlets, niche blogs, and everything in between so you don't have to.",
     },
     {
-      icon: "cut",
+      icon: "edit",
       title: "Cuts through the noise",
       description:
         "No doom-scroll, no filler. Just the stories that actually affect your day and why they matter.",
@@ -31,19 +31,19 @@ export const HOME_CONTENT = {
   whatYouGet: [
     {
       label: "The day's top stories",
-      value: "newspaper",
+      value: "calendar",
       detail:
         "3-5 headlines worth your attention, explained clearly without assuming you have a poli-sci degree.",
     },
     {
       label: "Why it matters",
-      value: "search",
+      value: "eye",
       detail:
         "Quick context on what changed, who it impacts, and why you should care in plain language.",
     },
     {
       label: "Quick hits",
-      value: "spark",
+      value: "star",
       detail:
         "Other stories worth knowing in bullet form. Skimmable in 30 seconds flat.",
     },

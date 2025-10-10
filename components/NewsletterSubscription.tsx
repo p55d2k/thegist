@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { FiCpu } from "react-icons/fi";
+import { isValidEmail } from "@/lib/email";
 
 interface NewsletterSubscriptionProps {
   className?: string;
@@ -17,6 +18,29 @@ export default function NewsletterSubscription({
     "idle"
   );
   const [message, setMessage] = useState("");
+  const [emailValid, setEmailValid] = useState<boolean | null>(null);
+  const [emailValidating, setEmailValidating] = useState(false);
+
+  useEffect(() => {
+    if (!email.trim()) {
+      setEmailValid(null);
+      return;
+    }
+
+    const validate = async () => {
+      setEmailValidating(true);
+      try {
+        const valid = await isValidEmail(email.trim());
+        setEmailValid(valid);
+      } catch {
+        setEmailValid(false);
+      } finally {
+        setEmailValidating(false);
+      }
+    };
+
+    validate();
+  }, [email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +55,7 @@ export default function NewsletterSubscription({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), nickname: "" }),
       });
 
       const data = await response.json();
@@ -59,10 +83,6 @@ export default function NewsletterSubscription({
         setMessage("");
       }, 4000);
     }
-  };
-
-  const isValidEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   };
 
   return (
@@ -107,7 +127,15 @@ export default function NewsletterSubscription({
             disabled={isSubmitting}
             required
           />
-          {email && !isValidEmail(email) && (
+          {/* Honeypot field */}
+          <input
+            type="text"
+            name="nickname"
+            style={{ display: "none" }}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+          {email && emailValid === false && !emailValidating && (
             <motion.p
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -125,7 +153,12 @@ export default function NewsletterSubscription({
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           type="submit"
-          disabled={isSubmitting || !email.trim() || !isValidEmail(email)}
+          disabled={
+            isSubmitting ||
+            !email.trim() ||
+            emailValid !== true ||
+            emailValidating
+          }
           className="w-full rounded-xl bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold uppercase tracking-[0.1em] sm:tracking-[0.2em] text-white transition hover:from-blue-400 hover:via-indigo-500 hover:to-purple-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isSubmitting ? (

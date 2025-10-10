@@ -1,18 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addSubscriber } from "@/lib/firestore";
-import { EMAIL_REGEX } from "@/constants/config";
+import { isValidEmail } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email } = body;
+    const { email, nickname } = body;
+
+    // Honeypot check: reject if nickname has a value
+    if (nickname && nickname.trim()) {
+      console.log("Honeypot triggered for email:", email);
+      return NextResponse.json(
+        {
+          message: "Successfully subscribed!",
+          alreadyExists: false,
+        },
+        { status: 201 }
+      );
+    }
 
     // Validate email
     if (!email || typeof email !== "string") {
       return NextResponse.json({ error: "Email is required" }, { status: 400 });
     }
 
-    if (!EMAIL_REGEX.test(email)) {
+    const emailIsValid = await isValidEmail(email);
+    if (!emailIsValid) {
       return NextResponse.json(
         { error: "Invalid email format" },
         { status: 400 }
