@@ -1,69 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addSubscriber } from "@/lib/firestore";
 import { isValidEmail } from "@/lib/email";
+import { checkRateLimit } from "@/lib/rate-limit";
 
-const RECAPTCHA_VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify";
-
-async function verifyRecaptcha(token?: string | null, remoteIp?: string) {
-  const secret = process.env.RECAPTCHA_SECRET_KEY;
-  const minScore = Number(process.env.RECAPTCHA_MIN_SCORE ?? 0.5);
-
-  if (!secret) {
-    // If no secret is configured, skip verification (safer to allow than fail)
-    console.warn("RECAPTCHA_SECRET_KEY not configured; skipping verification");
-    return { ok: true, score: 1 };
-  }
-
-  if (!token) {
-    return { ok: false, score: 0, reason: "missing-token" };
-  }
-
-  try {
-    const params = new URLSearchParams();
-    params.append("secret", secret);
-    params.append("response", token);
-    if (remoteIp) params.append("remoteip", remoteIp);
-
-    const res = await fetch(RECAPTCHA_VERIFY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
-    });
-
-    if (!res.ok) {
-      return { ok: false, score: 0, reason: "recaptcha-network-failure" };
-    }
-
-    const json = await res.json();
-    // json: { success, score, action, challenge_ts, hostname, 'error-codes'? }
-    if (!json.success) {
-      return {
-        ok: false,
-        score: json.score ?? 0,
-        reason: "recaptcha-failed",
-        payload: json,
-      };
-    }
-
-    if (typeof json.score === "number" && json.score < minScore) {
-      return {
-        ok: false,
-        score: json.score,
-        reason: "recaptcha-low-score",
-        payload: json,
-      };
-    }
-
-    return { ok: true, score: json.score ?? 1, payload: json };
-  } catch (err) {
-    console.warn("Error verifying reCAPTCHA:", err);
-    return { ok: false, score: 0, reason: "recaptcha-exception" };
-  }
-}
+// reCAPTCHA removed: no server-side verification is performed
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    // Rate limiting: identify client IP (x-forwarded-for or fallback)
+    const xff = request.headers.get("x-forwarded-for");
+    const ip = xff ? xff.split(",")[0].trim() : request.ip ?? "unknown";
+
+    const rl = checkRateLimit(ip, { windowMs: 60_000, max: 6 });
+    if (!rl.ok) {
+      // Return 429 with minimal headers
+      return NextResponse.json(
+        { error: "Rate limit exceeded" },
+        {
+          status: 429,
+          headers: {
+            "retry-after": String(Math.ceil((rl.reset - Date.now()) / 1000)),
+            "x-ratelimit-limit-requests": String(6),
+            "x-ratelimit-remaining-requests": String(0),
+            "x-ratelimit-reset": String(rl.reset),
+          },
+        }
+      );
+    }
     const { email, nickname } = body;
 
     // Honeypot check: reject if nickname has a value
@@ -78,21 +42,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify reCAPTCHA v3 token (if present)
-    const recaptchaResult = await verifyRecaptcha(
-      body.recaptchaToken,
-      request.headers.get("x-forwarded-for") ?? undefined
-    );
-    if (!recaptchaResult.ok) {
-      return NextResponse.json(
-        {
-          error: `reCAPTCHA verification failed: ${
-            recaptchaResult.reason || "low-score"
-          }`,
-        },
-        { status: 400 }
-      );
-    }
+    // reCAPTCHA removed: skip verification entirely
 
     // Validate email
     if (!email || typeof email !== "string") {

@@ -50,118 +50,6 @@ export default function NewsletterSubscription({
     setStatus("idle");
 
     try {
-      // Attempt to get a reCAPTCHA v3 token (if the site key is available)
-      let recaptchaToken: string | null = null;
-      const siteKey =
-        typeof window !== "undefined"
-          ? (process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY as string | undefined)
-          : undefined;
-
-      const loadReCaptcha = async (key: string, timeoutMs = 5000) => {
-        if (typeof window === "undefined") throw new Error("No window");
-        if ((window as any).grecaptcha && (window as any).grecaptcha.execute) {
-          return (window as any).grecaptcha;
-        }
-
-        // Inject script if not already present
-        if (!document.querySelector(`script[src*="recaptcha"]`)) {
-          const el = document.createElement("script");
-          el.src = `https://www.google.com/recaptcha/api.js?render=${key}`;
-          el.async = true;
-          el.defer = true;
-          document.head.appendChild(el);
-        }
-
-        // Wait for grecaptcha to be ready
-        return await new Promise<any>((resolve, reject) => {
-          const deadline = Date.now() + timeoutMs;
-          const check = () => {
-            if (
-              (window as any).grecaptcha &&
-              (window as any).grecaptcha.execute
-            ) {
-              try {
-                (window as any).grecaptcha.ready(() =>
-                  resolve((window as any).grecaptcha)
-                );
-              } catch (err) {
-                resolve((window as any).grecaptcha);
-              }
-              return;
-            }
-            if (Date.now() > deadline)
-              return reject(new Error("reCAPTCHA load timeout"));
-            setTimeout(check, 100);
-          };
-          check();
-        });
-      };
-
-      try {
-        // In local development, many reCAPTCHA site keys will be domain-restricted
-        // and cause confusing console errors like "Localhost not supported". To
-        // avoid that noise during local development, skip loading/executing
-        // grecaptcha for common local hosts unless a valid key for localhost
-        // has been provided.
-        const hostname =
-          typeof window !== "undefined" ? window.location.hostname : undefined;
-        const isLocalHost =
-          hostname === "localhost" ||
-          hostname === "127.0.0.1" ||
-          hostname === "::1";
-
-        if (siteKey && !isLocalHost) {
-          const grecaptcha = await loadReCaptcha(siteKey, 6000).catch((err) => {
-            console.warn("reCAPTCHA load failed:", err);
-            return null;
-          });
-
-          if (grecaptcha) {
-            try {
-              // Ensure grecaptcha is ready before executing
-              recaptchaToken = await new Promise<string>((resolve, reject) => {
-                let settled = false;
-                try {
-                  grecaptcha.ready(() => {
-                    grecaptcha.execute(siteKey, { action: "subscribe" }).then(
-                      (token: string) => {
-                        settled = true;
-                        resolve(token);
-                      },
-                      (err: any) => {
-                        settled = true;
-                        reject(err);
-                      }
-                    );
-                  });
-                } catch (err) {
-                  if (!settled) reject(err);
-                }
-
-                // Safety timeout
-                setTimeout(() => {
-                  if (!settled) reject(new Error("reCAPTCHA execute timeout"));
-                }, 4000);
-              });
-            } catch (err) {
-              console.warn("reCAPTCHA execute failed:", err);
-              recaptchaToken = null;
-            }
-          }
-        } else if (siteKey && isLocalHost) {
-          // Localhost: skip loading grecaptcha and mark token as null. This avoids
-          // the Google admin console error that appears when a key is not allowed
-          // for localhost. For a real fix, create a reCAPTCHA v3 key that lists
-          // "localhost" as an allowed domain and restart the dev server.
-          console.info(
-            "Skipping reCAPTCHA on local host (to avoid domain errors). If you need reCAPTCHA locally, create a key that allows 'localhost'."
-          );
-        }
-      } catch (err) {
-        console.warn("reCAPTCHA client error:", err);
-        recaptchaToken = null;
-      }
-
       const response = await fetch("/api/subscribe", {
         method: "POST",
         headers: {
@@ -170,7 +58,6 @@ export default function NewsletterSubscription({
         body: JSON.stringify({
           email: email.trim(),
           nickname: "",
-          recaptchaToken,
         }),
       });
 
@@ -296,8 +183,8 @@ export default function NewsletterSubscription({
           window.location.hostname === "::1") && (
           <div className="mt-3 text-center text-[11px] text-slate-400">
             reCAPTCHA is skipped on localhost to avoid domain restriction
-            warnings. Create a key that includes &quot;localhost&quot; in the allowed
-            domains to test reCAPTCHA locally.
+            warnings. Create a key that includes &quot;localhost&quot; in the
+            allowed domains to test reCAPTCHA locally.
           </div>
         )}
 
