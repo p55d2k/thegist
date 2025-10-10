@@ -9,19 +9,19 @@ export const HOME_CONTENT = {
 
   howItWorks: [
     {
-      icon: "🤖",
+      icon: "robot",
       title: "AI does the reading",
       description:
         "Our AI skims major outlets, niche blogs, and everything in between so you don't have to.",
     },
     {
-      icon: "✂️",
+      icon: "cut",
       title: "Cuts through the noise",
       description:
         "No doom-scroll, no filler. Just the stories that actually affect your day and why they matter.",
     },
     {
-      icon: "📬",
+      icon: "mail",
       title: "Hits your inbox",
       description:
         "One email twice daily. Read it with coffee, feel informed all day. Unsubscribe any time.",
@@ -31,19 +31,19 @@ export const HOME_CONTENT = {
   whatYouGet: [
     {
       label: "The day's top stories",
-      value: "📰",
+      value: "newspaper",
       detail:
         "3-5 headlines worth your attention, explained clearly without assuming you have a poli-sci degree.",
     },
     {
       label: "Why it matters",
-      value: "🔍",
+      value: "search",
       detail:
         "Quick context on what changed, who it impacts, and why you should care in plain language.",
     },
     {
       label: "Quick hits",
-      value: "⚡",
+      value: "spark",
       detail:
         "Other stories worth knowing in bullet form. Skimmable in 30 seconds flat.",
     },
@@ -94,7 +94,7 @@ export const HOME_CONTENT = {
     },
     cta: {
       badge: "Be among the first to get The Gist",
-      title: "Get tomorrow's brief—free, fast, no BS.",
+      title: "Get tomorrow's brief — free, fast, no BS.",
       description:
         "Delivered twice daily in your timezone. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",
       features: ["5 minute read", "No clickbait", "Cancel anytime"],
@@ -107,7 +107,7 @@ export const HOME_CONTENT = {
   },
 
   links: {
-    preview: "Preview our brief",
-    seeBrief: "See a brief ↗",
+    preview: "Preview today's brief",
+    seeBrief: "See today's brief",
   },
 } as const;

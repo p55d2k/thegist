@@ -7,6 +7,12 @@ import {
   SECTION_KEYWORDS,
   SECTION_TOKEN_MAP,
 } from "@/constants/llm";
+import {
+  buildPlanPrompt,
+  buildSimplePlanPrompt,
+  buildOverviewPrompt,
+  OVERVIEW_SYSTEM_PROMPT,
+} from "./prompts";
 
 const MAX_INPUT_ARTICLES = LLM_CONFIG.maxInputArticles;
 const DEFAULT_MODEL = process.env.GROQ_MODEL ?? LLM_CONFIG.defaultModel;
@@ -416,83 +422,38 @@ const parseLLMPipePlan = (
   } as LLMNewsletterPlan;
 };
 
-const buildPlanPrompt = (
-  dataset: string,
-  options: PlanGenerationOptions
+const buildArticleOverview = (
+  articles: ProcessedNewsItem[],
+  topicKey: keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">
 ): string => {
-  const targetTopic = options.topicKey;
-  const alreadySelectedTitles = options.alreadySelectedTitles;
+  const articleItems = articles
+    .map((article) => {
+      const title = stripHtml(article.title);
+      const publisher = article.publisher ? ` by ${article.publisher}` : "";
+      const date = article.pubDate
+        ? ` (${article.pubDate.toLocaleDateString()})`
+        : "";
+      return `- ${title}${publisher}${date}`;
+    })
+    .join("\n");
 
-  let prompt = [
-    `Rank most relevant ${targetTopic} articles by: impact, timeliness, credibility, uniqueness, engagement.`,
-    "",
-    `Format: ${targetTopic}|<id>|brief_summary`,
-    `Example: ${targetTopic}|a001|Apple announces revolutionary AI breakthrough.`,
-    "",
-    "Rules: exact format only, rank best to worst, 15 articles, 1 sentence summaries max 50 words (only if original description inadequate), avoid duplicate topics.",
-    "",
-    "DATASET:",
-    dataset,
-  ].join("\n");
-
-  if (alreadySelectedTitles && alreadySelectedTitles.length > 0) {
-    const titlesList = alreadySelectedTitles
-      .map((title, i) => `${i + 1}. ${title}`)
-      .join("\n");
-    prompt = [
-      `Rank most relevant ${targetTopic} articles by: impact, timeliness, credibility, uniqueness, engagement.`,
-      "",
-      `IMPORTANT: Avoid articles about topics already covered in other sections. Recent selected articles (sample):`,
-      titlesList,
-      "",
-      `Format: ${targetTopic}|<id>|brief_summary`,
-      `Example: ${targetTopic}|a001|Apple announces revolutionary AI breakthrough.`,
-      "",
-      "Rules: exact format only, rank best to worst, 15 articles, 1 sentence summaries max 50 words (only if original description inadequate), avoid duplicate topics.",
-      "",
-      "DATASET:",
-      dataset,
-    ].join("\n");
-  }
-
-  return prompt;
+  return `## ${topicKey} Articles\n\n${articleItems}`;
 };
 
-const buildSimplePlanPrompt = (
-  dataset: string,
-  options: PlanGenerationOptions
+const buildFallbackOverview = (
+  articles: ProcessedNewsItem[],
+  topicKey: keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">
 ): string => {
-  const targetTopic = options.topicKey;
-  const alreadySelectedTitles = options.alreadySelectedTitles;
+  const articleCount = articles.length;
+  const articleWord = articleCount === 1 ? "article" : "articles";
 
-  let prompt = [
-    `Rank top ${targetTopic} articles by importance.`,
-    `Format: ${targetTopic}|<id>|brief summary`,
-    "Rules: no extra text, one per line, 5-8 articles, avoid duplicate topics. Only generate summaries if original description is inadequate.",
-    "",
-    "Dataset:",
-    dataset,
-  ].join("\n");
+  return `## ${topicKey} - Fallback Overview
 
-  if (alreadySelectedTitles && alreadySelectedTitles.length > 0) {
-    const titlesList = alreadySelectedTitles
-      .map((title, i) => `${i + 1}. ${title}`)
-      .join("\n");
-    prompt = [
-      `Rank top ${targetTopic} articles by importance.`,
-      "",
-      `IMPORTANT: Avoid articles about topics already covered in other sections. Recent selected articles (sample):`,
-      titlesList,
-      "",
-      `Format: ${targetTopic}|<id>|brief summary`,
-      "Rules: no extra text, one per line, 5-8 articles, avoid duplicate topics. Only generate summaries if original description is inadequate.",
-      "",
-      "Dataset:",
-      dataset,
-    ].join("\n");
-  }
+This is a fallback overview for the ${topicKey} section. In the absence of AI-generated content, we present the latest ${articleCount} ${articleWord} on this topic:
 
-  return prompt;
+${articles.map((a) => `- ${a.title}`).join("\n")}
+
+For more personalized content, please check the main sections of the newsletter.`;
 };
 
 const normalizeUrl = (url: string): string => {
@@ -779,20 +740,9 @@ export const generateFinalOverview = async (
 
   const serializedDataset = serializeArticlesForLLM(articleRecords);
 
-  const prompt = [
-    "Generate newsletter overview, summary, highlights from selected articles.",
-    "",
-    "Format:",
-    "OVERVIEW: [2-3 sentence overview]",
-    "SUMMARY: [1 sentence summary]",
-    "HIGHLIGHTS: [top 4 article IDs, e.g., a001,a002,a003,a004]",
-    "",
-    "Dataset:",
-    serializedDataset,
-  ].join("\n");
+  const prompt = buildOverviewPrompt(serializedDataset);
 
-  const systemPrompt =
-    "Newsletter editor: create compelling overviews focusing on key themes and important stories.";
+  const systemPrompt = OVERVIEW_SYSTEM_PROMPT;
 
   try {
     const { rawText } = await callLLMCompletion(

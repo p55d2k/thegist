@@ -40,7 +40,10 @@ export const SECTION_HINT_MAP: Record<
 } as const;
 
 export const SECTION_KEYWORDS: Partial<
-  Record<keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">, RegExp[]>
+  Record<
+    keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">,
+    readonly RegExp[]
+  >
 > = {
   commentaries: [
     /opinion/i,

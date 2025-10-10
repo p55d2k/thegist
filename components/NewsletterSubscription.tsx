@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { FiCpu } from "react-icons/fi";
 
 interface NewsletterSubscriptionProps {
   className?: string;
@@ -77,7 +78,10 @@ export default function NewsletterSubscription({
         transition={{ duration: 0.5, delay: 0.5 }}
         className="text-center mb-6"
       >
-        <h3 className="text-xl sm:text-2xl font-bold mb-2">🤖 Join The Gist</h3>
+        <h3 className="text-xl sm:text-2xl font-bold mb-2 inline-flex items-center gap-2">
+          <FiCpu />
+          <span>Join The Gist</span>
+        </h3>
         <p className="text-xs sm:text-sm leading-relaxed text-slate-200">
           Get the five-minute brief that tells you what actually matters.
           <br className="hidden sm:block" />
@@ -131,7 +135,7 @@ export default function NewsletterSubscription({
               className="mx-auto h-5 w-5 rounded-full border-2 border-white border-t-transparent"
             />
           ) : (
-            "Subscribe to The Gist ✨"
+            "Subscribe to The Gist"
           )}
         </motion.button>
       </form>

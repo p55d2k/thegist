@@ -6,6 +6,8 @@ import { motion } from "framer-motion";
 import NewsletterSubscription from "@/components/NewsletterSubscription";
 import Logo from "@/components/Logo";
 import { HOME_CONTENT } from "@/constants/ui";
+import { FiExternalLink, FiStar, FiMail } from "react-icons/fi";
+import Icon from "@/components/Icon";
 
 const Home = () => {
   return (
@@ -66,7 +68,7 @@ const Home = () => {
                 className="hidden md:inline-flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 font-medium text-white transition hover:border-purple-400/60 hover:bg-purple-500/20"
               >
                 <span>{HOME_CONTENT.links.preview}</span>
-                <span className="text-base">↗</span>
+                <FiExternalLink className="text-base" />
               </Link>
             </div>
           </motion.nav>
@@ -134,7 +136,7 @@ const Home = () => {
                   </p>
                 </div>
                 <div className="grid gap-6 md:grid-cols-3">
-                  {HOME_CONTENT.howItWorks.map((item, index) => (
+                  {HOME_CONTENT.howItWorks.map((item: any, index: number) => (
                     <motion.div
                       key={item.title}
                       initial={{ opacity: 0, y: 20 }}
@@ -145,7 +147,7 @@ const Home = () => {
                       <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
                       <div className="relative">
                         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 text-xl backdrop-blur">
-                          {item.icon}
+                          <Icon name={item.icon} />
                         </div>
                         <h3 className="mb-3 text-lg font-bold text-white">
                           {item.title}
@@ -180,7 +182,7 @@ const Home = () => {
                 <span>{HOME_CONTENT.subscriberCount}</span>
               </div>
               <div className="flex items-center gap-2 rounded-full border border-emerald-300/40 bg-emerald-400/10 px-4 py-2 text-emerald-200">
-                <span className="text-base">★</span>
+                <FiStar className="text-base" />
                 <span>Multi-perspective, source-linked every day</span>
               </div>
             </motion.div>
@@ -200,7 +202,7 @@ const Home = () => {
                 </p>
               </div>
               <div className="grid gap-6 md:grid-cols-3">
-                {HOME_CONTENT.whatYouGet.map((point, index) => (
+                {HOME_CONTENT.whatYouGet.map((point: any, index: number) => (
                   <motion.div
                     key={point.label}
                     initial={{ opacity: 0, y: 20 }}
@@ -213,7 +215,7 @@ const Home = () => {
                     }}
                     className="space-y-3 rounded-2xl border border-white/5 bg-slate-950/40 p-5 shadow-inner shadow-blue-500/10"
                   >
-                    <span className="text-2xl">{point.value}</span>
+                    <Icon name={point.value} className="!h-10 !w-10" />
                     <p className="text-base font-semibold tracking-wide text-white">
                       {point.label}
                     </p>
@@ -312,14 +314,20 @@ const Home = () => {
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
               >
                 GitHub
-                <span>↗</span>
+                <FiExternalLink />
               </Link>
               <Link
                 href="mailto:zknewsletter@gmail.com"
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
               >
                 Contact
-                <span>✉️</span>
+                <FiMail />
+              </Link>
+              <Link
+                href="/status"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/30 hover:text-white"
+              >
+                <span>Status</span>
               </Link>
             </div>
           </footer>

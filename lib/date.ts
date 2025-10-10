@@ -1,6 +1,5 @@
 export const getDateString = (): string => {
   const today = new Date();
-  today.setHours(today.getHours());
   const formattedToday = new Intl.DateTimeFormat("en-SG", {
     dateStyle: "medium",
   }).format(today);
@@ -9,7 +8,6 @@ export const getDateString = (): string => {
 
 export const getGreeting = (): string => {
   const today = new Date();
-  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 11) {
@@ -23,7 +21,6 @@ export const getGreeting = (): string => {
 
 export const getTime = (): string => {
   const today = new Date();
-  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 12) {
@@ -35,7 +32,6 @@ export const getTime = (): string => {
 
 export const getTimeBasedGreeting = (): string => {
   const today = new Date();
-  today.setHours(today.getHours());
   const hour = today.getHours();
 
   if (hour <= 12) {

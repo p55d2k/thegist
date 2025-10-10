@@ -285,7 +285,7 @@ export const buildHtml = (formatted: FormattedArticles): string => {
     </head>
     <body style="background-color: #f8fafc; padding: 40px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #0f172a; margin: 0;">
       <div class="email-container">
-        <main style="overflow: hidden; border-radius: 12px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+  <main style="overflow: hidden; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
           <header style="margin-bottom: 32px; text-align: center;">
             <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
               Here's the gist.
@@ -295,6 +295,7 @@ export const buildHtml = (formatted: FormattedArticles): string => {
     generatedOn
   )}).
             </p>
+            <!-- Email-safe stats: use a table rather than flexbox for broad client support -->
             <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
               <span>${totalArticles} articles</span>
               <span class="summary-separator" style="color: #94a3b8;">•</span>
@@ -605,21 +606,29 @@ export const formatRawBody = (
 ): string => {
   // If this is a preview send, obfuscate links in plaintext to avoid revealing real URLs
   const isPreview = id && id.startsWith("preview-");
+  // Collect unique links and replace them with numbered placeholders
+  const seen: string[] = [];
+  const replaceUrl = (url: string) => {
+    const idx = seen.indexOf(url);
+    if (idx !== -1) return isPreview ? `[link:${idx + 1}]` : url;
+    seen.push(url);
+    return isPreview ? `[link:${seen.length}]` : url;
+  };
 
-  const obfuscateLink = (url: string, index: number) =>
-    isPreview ? `[link:${index + 1}]` : url;
-
-  // Build plain text but replace URLs when previewing
   const text = formattedArticles.text
     .split(/\n/)
-    .map((line) => {
-      return line.replace(/https?:\/\/[\S]+/g, (match) =>
-        obfuscateLink(match, 0)
-      );
-    })
+    .map((line) =>
+      line.replace(/https?:\/\/[\S]+/g, (match) => replaceUrl(match))
+    )
     .join("\n");
 
-  return `${text}\n\nStay curious,\nThe Gist team\n${
+  // If preview, append a mapping of numbered links so readers can see the real URLs
+  const linksBlock =
+    isPreview && seen.length > 0
+      ? `\n\nLinks:\n${seen.map((u, i) => `${i + 1}. ${u}`).join("\n")}`
+      : "";
+
+  return `${text}${linksBlock}\n\nStay curious,\nThe Gist team\n${
     formattedArticles.aiMetadata.usedFallback
       ? `Structured with human safeguards${
           formattedArticles.aiMetadata.fallbackReason

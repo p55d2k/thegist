@@ -3,6 +3,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import {
+  FiCheckCircle,
+  FiXCircle,
+  FiClock,
+  FiTool,
+  FiFileText,
+  FiSend,
+  FiHelpCircle,
+  FiArrowLeft,
+} from "react-icons/fi";
 
 interface EmailSendStatus {
   id: string;
@@ -108,10 +118,21 @@ export default function StatusPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Intl.DateTimeFormat("en-US", {
-      dateStyle: "medium",
-      timeStyle: "medium",
-    }).format(new Date(dateString));
+    if (!dateString) return "";
+
+    // Use the browser's locale (undefined) so times are shown in the
+    // user's local timezone. Include a short timezone name so it's clear
+    // what timezone the timestamp is displayed in.
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "medium",
+        timeZoneName: "short",
+      }).format(new Date(dateString));
+    } catch (err) {
+      // Fallback to basic ISO string if formatting fails
+      return new Date(dateString).toString();
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -138,21 +159,21 @@ export default function StatusPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "success":
-        return "✅";
+        return <FiCheckCircle className="inline" />;
       case "failed":
-        return "❌";
+        return <FiXCircle className="inline" />;
       case "pending":
-        return "⏳";
+        return <FiClock className="inline" />;
       case "news-collecting":
-        return "🛠️";
+        return <FiTool className="inline" />;
       case "news-ready":
-        return "📰";
+        return <FiFileText className="inline" />;
       case "ready-to-send":
-        return "🚀";
+        return <FiSend className="inline" />;
       case "sending":
-        return "📤";
+        return <FiSend className="inline" />;
       default:
-        return "❓";
+        return <FiHelpCircle className="inline" />;
     }
   };
 
@@ -182,9 +203,10 @@ export default function StatusPage() {
     <main className="mx-auto max-w-6xl space-y-8 px-6 py-10">
       <button
         onClick={() => router.push("/")}
-        className="mb-4 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
+        className="mb-4 inline-flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-200"
       >
-        ← Back
+        <FiArrowLeft className="text-base" />
+        <span>Back</span>
       </button>
       <header className="space-y-4">
         <motion.h1

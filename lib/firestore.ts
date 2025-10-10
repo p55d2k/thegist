@@ -16,7 +16,8 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
-import { v4 as uuidv4 } from "uuid";
+// Use Node's built-in crypto.randomUUID to avoid CJS/ESM interop issues with uuid
+import { randomUUID } from "node:crypto";
 import {
   computeArticlesSummary,
   mergeSerializedTopics,
@@ -64,7 +65,7 @@ const TOPIC_DOC_ID_PAD = 4;
 const formatTopicDocId = (index: number): string =>
   `topic_${index.toString().padStart(TOPIC_DOC_ID_PAD, "0")}`;
 
-const generateSendId = (): string => uuidv4();
+const generateSendId = (): string => randomUUID();
 
 const toDate = (value?: Date | Timestamp): Date | undefined => {
   if (!value) {
