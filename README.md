@@ -121,6 +121,13 @@ FIREBASE_MEASUREMENT_ID=your-measurement-id
 
 # API Security
 NEWSLETTER_JOB_TOKEN=your-shared-secret-token
+
+# reCAPTCHA (optional but recommended)
+# Register at https://www.google.com/recaptcha/admin to obtain keys.
+# Use reCAPTCHA v3 site key on the client and secret key on the server.
+NEXT_PUBLIC_RECAPTCHA_SITE_KEY=your-recaptcha-site-key
+RECAPTCHA_SECRET_KEY=your-recaptcha-secret-key
+RECAPTCHA_MIN_SCORE=0.5 # optional threshold (0.0 - 1.0)
 ```
 
 **Getting API Keys:**
