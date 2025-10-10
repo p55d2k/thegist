@@ -2,8 +2,8 @@ name: Send Daily Newsletter
 
 on:
   schedule:
-    - cron: "30 6 * * *"
-    - cron: "30 18 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 16 * * *"
   workflow_dispatch:
     inputs:
       sendId:

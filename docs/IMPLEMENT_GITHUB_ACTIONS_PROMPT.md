@@ -16,7 +16,7 @@ Replace the current cron-job.org setup with a GitHub Actions scheduled workflow 
 ### 1. Create GitHub Actions Workflow
 
 - **File:** `.github/workflows/newsletter.yml`
-- **Content:** Scheduled workflow that runs daily (e.g., 8 AM UTC).
+- **Content:** Scheduled workflow that runs daily (e.g., 8 AM UTC and 4 PM UTC).
 - **Job:** Run on ubuntu-latest, setup Node.js 20, install dependencies, execute newsletter script.
 - **Environment Variables:** Pass required secrets (NEWSLETTER_JOB_TOKEN, API keys, etc.).
 

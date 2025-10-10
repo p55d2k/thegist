@@ -413,7 +413,7 @@ Checks the delivery status of newsletter emails. Can retrieve recent sends or ch
 
 ### Automation with GitHub Actions
 
-Newsletter delivery is orchestrated by the `Send Daily Newsletter` workflow in `.github/workflows/newsletter.yml`. It runs every day at **06:30 UTC** and can also be triggered manually from the GitHub Actions tab.
+Newsletter delivery is orchestrated by the `Send Daily Newsletter` workflow in `.github/workflows/newsletter.yml`. It runs every day at **08:00 UTC and 16:00 UTC** and can also be triggered manually from the GitHub Actions tab.
 
 #### Required secrets
 

@@ -3,11 +3,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
-  formatArticlesWithoutLLM,
   formatBody,
   formatRawBody,
+  computeTotalsFromPlan,
+  buildHtml,
+  buildText,
 } from "@/lib/email";
-import { MOCK_NEWSLETTER_DATA } from "@/constants/mockData";
+import { getRecentEmailSends, getNewsletterJob } from "@/lib/firestore";
 
 const EmailPreview = () => {
   const router = useRouter();
@@ -22,36 +24,46 @@ const EmailPreview = () => {
   useEffect(() => {
     const loadPreview = async () => {
       try {
-        // Convert mock data to TopicNewsGroup format
-        const topics: TopicNewsGroup[] = MOCK_NEWSLETTER_DATA.topics.map(
-          (group) => ({
-            topic: group.topic,
-            slug: group.slug,
-            publisher: group.publisher,
-            sectionHints: [...group.sectionHints],
-            items: group.items.map((item) => ({
-              title: item.title,
-              description: item.description,
-              link: item.link,
-              pubDate: new Date(item.pubDate),
-              source: item.source,
-              publisher: item.publisher,
-              topic: item.topic,
-              slug: item.slug,
-              sectionHints: [...item.sectionHints],
-            })),
-          })
+        // Fetch recent email sends to get the latest newsletter
+        const recentSends = await getRecentEmailSends(10);
+        const latestJob = recentSends.find(
+          (send) => send.status === "ready-to-send" || send.status === "success"
         );
 
-        // For preview mode, ensure links don't navigate — replace with '#'
-        const previewTopics = topics.map((group) => ({
-          ...group,
-          items: group.items.map((item) => ({ ...item, link: "#" })),
-        }));
-        const formatted = await formatArticlesWithoutLLM(
-          topics, // Use original topics for processing
-          "Email preview with real newsletter data"
-        );
+        if (!latestJob || !latestJob.id) {
+          throw new Error("No recent newsletter found in database");
+        }
+
+        // Fetch the full job details
+        const job = await getNewsletterJob(latestJob.id);
+        if (!job || !job.plan) {
+          throw new Error("Newsletter job or plan not found");
+        }
+
+        // Use the plan from the job
+        const plan = job.plan;
+
+        // Compute totals from plan
+        const totals = computeTotalsFromPlan(plan);
+
+        // Get AI metadata from job
+        const aiMetadata = job.aiMetadata || {
+          model: "unknown",
+          usedFallback: true,
+          fallbackReason: "Metadata unavailable",
+        };
+
+        // Build formatted newsletter
+        const formatted = {
+          plan,
+          html: "",
+          text: "",
+          ...totals,
+          aiMetadata,
+        };
+
+        formatted.html = buildHtml(formatted);
+        formatted.text = buildText(formatted);
 
         // Replace all links with '#' for preview
         const replaceLinks = (obj: any): any => {
@@ -65,8 +77,7 @@ const EmailPreview = () => {
         };
         replaceLinks(formatted);
 
-        // Mock send ID for preview verification. In production this will be a
-        // real unique send identifier returned by the send pipeline.
+        // Mock send ID for preview verification
         const mockSendId = `preview-${new Date().toISOString()}`;
 
         const htmlEmail = formatBody(formatted, mockSendId);

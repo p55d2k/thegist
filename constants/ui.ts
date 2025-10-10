@@ -24,7 +24,7 @@ export const HOME_CONTENT = {
       icon: "📬",
       title: "Hits your inbox",
       description:
-        "One email by 7:30am. Read it with coffee, feel informed all day. Unsubscribe any time.",
+        "One email twice daily. Read it with coffee, feel informed all day. Unsubscribe any time.",
     },
   ],
 
@@ -96,7 +96,7 @@ export const HOME_CONTENT = {
       badge: "Be among the first to get The Gist",
       title: "Get tomorrow's brief—free, fast, no BS.",
       description:
-        "Delivered by 7:30am every day of the week. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",
+        "Delivered twice daily in your timezone. Read it in five minutes, know what happened, and skip the doom-scroll. Unsubscribe any time.",
       features: ["5 minute read", "No clickbait", "Cancel anytime"],
     },
   },
