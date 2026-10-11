@@ -51,60 +51,65 @@ export async function OPTIONS() {
   return NextResponse.json({}, { status: 200 });
 }
 
-function serializeNewsletterJob(job: any) {
-  const clone: Record<string, any> = { ...job };
+// Whitelist fields exposed to the public preview page. Never include
+// PII (e.g. pendingRecipients) or heavy/irrelevant payloads.
+const PUBLIC_JOB_FIELDS = [
+  "id",
+  "status",
+  "batchSize",
+  "pendingRecipientsCount",
+  "sourcesTotal",
+  "plan",
+  "aiMetadata",
+] as const;
 
-  const dateKeys = [
-    "startedAt",
-    "completedAt",
-    "newsFetchedAt",
-    "planGeneratedAt",
-    "sendStartedAt",
-    "lastBatchAt",
-  ];
+const DATE_KEYS = [
+  "startedAt",
+  "completedAt",
+  "newsFetchedAt",
+  "planGeneratedAt",
+  "sendStartedAt",
+  "lastBatchAt",
+];
 
-  for (const key of dateKeys) {
-    const value = job[key];
-    if (!value) {
-      clone[key] = undefined;
-      continue;
+const toIsoString = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? value : d.toISOString();
+  }
+  if (typeof (value as any).toISOString === "function") {
+    try {
+      return (value as Date).toISOString();
+    } catch {
+      return String(value);
     }
+  }
+  if (typeof (value as any).toDate === "function") {
+    try {
+      return (value as any).toDate().toISOString();
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
 
-    if (typeof value === "string") {
-      try {
-        const d = new Date(value);
-        clone[key] = isNaN(d.getTime()) ? value : d.toISOString();
-      } catch (err) {
-        clone[key] = value;
-      }
-    } else if (value?.toISOString) {
-      try {
-        clone[key] = value.toISOString();
-      } catch (err) {
-        clone[key] = String(value);
-      }
-    } else if (value?.toDate) {
-      try {
-        clone[key] = value.toDate().toISOString();
-      } catch (err) {
-        clone[key] = String(value);
-      }
-    } else {
-      clone[key] = String(value);
+function serializeNewsletterJob(job: any) {
+  const clone: Record<string, any> = {};
+
+  for (const key of PUBLIC_JOB_FIELDS) {
+    if (job[key] !== undefined) {
+      clone[key] = job[key];
     }
   }
 
-  // Ensure nested topics/publication dates are strings
-  if (Array.isArray(clone.topics)) {
-    clone.topics = clone.topics.map((t: any) => {
-      const items = Array.isArray(t.items)
-        ? t.items.map((it: any) => ({
-            ...it,
-            pubDate: String(it.pubDate ?? ""),
-          }))
-        : t.items;
-      return { ...t, items };
-    });
+  // Normalize timestamps to ISO strings
+  for (const key of DATE_KEYS) {
+    const value = toIsoString(job[key]);
+    if (value !== undefined) {
+      clone[key] = value;
+    }
   }
 
   return clone;
