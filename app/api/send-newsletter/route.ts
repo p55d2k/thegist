@@ -17,6 +17,7 @@ import {
   FormattedArticles,
   computeTotalsFromPlan,
 } from "@/lib/email";
+import { getDateString, getTime } from "@/lib/date";
 
 const AUTH_HEADER = "authorization";
 
@@ -204,9 +205,7 @@ export async function POST(request: NextRequest) {
         from: EMAIL_CONFIG.from(process.env.GOOGLE_USER_EMAIL!),
         to: process.env.GOOGLE_USER_EMAIL,
         bcc: batchRecipients.join(", "),
-        subject:
-          job.emailSubject ??
-          EMAIL_CONFIG.defaultSubject(new Date().toDateString()),
+        subject: job.emailSubject ?? `${getDateString()} ${getTime()} Brief`,
         text: formattedRawText,
         html: formattedHtml,
       });

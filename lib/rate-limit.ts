@@ -23,7 +23,7 @@ export function checkRateLimit(key: string, opts: RateLimitOptions = {}) {
     return { ok: true, remaining: max - 1, reset: now + windowMs };
   }
 
-  // within window
+// within window
   rec.count += 1;
   store.set(key, rec);
 

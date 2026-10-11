@@ -5,6 +5,49 @@ import {
 import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
 import { EMAIL_CONTENT, HTML_ENTITIES } from "@/constants/email";
 
+const MAIN_HEADINGS = [
+  "Here's the gist.",
+  "Your daily digest.",
+  "The essential briefing.",
+  "Today's key insights.",
+  "What you need to know.",
+  "The morning roundup.",
+  "The evening update.",
+  "Breaking it down.",
+  "The news in focus.",
+  "Today's highlights.",
+];
+
+const INTRO_VARIATIONS = [
+  "Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today",
+  "We analyzed hundreds of articles to bring you the most important stories",
+  "Curating the day's most relevant news from across the web",
+  "Distilling today's news into what really counts",
+  "Finding the signal in today's information noise",
+  "Bringing you the stories that shaped the day",
+  "Your curated selection of today's top stories",
+  "The news that moved markets and minds today",
+  "Today's most impactful developments",
+  "What everyone will be talking about tomorrow",
+];
+
+const CLOSINGS = [
+  "Stay curious,\nThe Gist team",
+  "Keep exploring,\nThe Gist team",
+  "Until next time,\nThe Gist team",
+  "Stay informed,\nThe Gist team",
+  "Keep learning,\nThe Gist team",
+  "See you tomorrow,\nThe Gist team",
+  "Stay engaged,\nThe Gist team",
+  "Keep discovering,\nThe Gist team",
+  "Stay ahead,\nThe Gist team",
+  "Keep questioning,\nThe Gist team",
+];
+
+const randomFromArray = <T>(array: T[]): T => {
+  return array[Math.floor(Math.random() * array.length)];
+};
+
 export interface FormattedArticles {
   plan: LLMNewsletterPlan;
   html: string;
@@ -288,12 +331,12 @@ export const buildHtml = (formatted: FormattedArticles): string => {
   <main style="overflow: hidden; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
           <header style="margin-bottom: 32px; text-align: center;">
             <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
-              Here's the gist.
+              ${escapeHtml(randomFromArray(MAIN_HEADINGS))}
             </h1>
             <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
-              Good ${getGreeting()} — ${getTimeBasedGreeting()} Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today (${escapeHtml(
-    generatedOn
-  )}).
+              Good ${getGreeting()} — ${getTimeBasedGreeting()} ${randomFromArray(
+    INTRO_VARIATIONS
+  )} (${escapeHtml(generatedOn)}).
             </p>
             <!-- Email-safe stats: use a table rather than flexbox for broad client support -->
             <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
@@ -342,7 +385,9 @@ export const buildHtml = (formatted: FormattedArticles): string => {
           ${renderWildCard(wildCard)}
           
           <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
-            <p style="margin: 0 0 16px 0;">Stay curious,<br/>The Gist team</p>
+            <p style="margin: 0 0 16px 0;">${escapeHtml(
+              randomFromArray(CLOSINGS)
+            ).replace("\n", "<br/>")}</p>
             <span style="display: inline-block; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
               ${aiBadge}
             </span>
@@ -416,8 +461,12 @@ export const buildText = (formatted: FormattedArticles): string => {
     .join("\n");
 
   const textSections = [
-    `THE GIST — ${generatedOn}`,
-    `Good ${getGreeting()}. ${getTimeBasedGreeting()} We skimmed 100+ of sources so you don't have to.`,
+    `${randomFromArray(MAIN_HEADINGS)
+      .toUpperCase()
+      .replace(".", "")} — ${generatedOn}`,
+    `Good ${getGreeting()}. ${getTimeBasedGreeting()} ${randomFromArray(
+      INTRO_VARIATIONS
+    ).toLowerCase()}.`,
     `SUMMARY\n${summaryText}`,
     ...(aiMetadata.usedFallback
       ? []
@@ -472,7 +521,7 @@ export const buildText = (formatted: FormattedArticles): string => {
       SECTION_COPY.wildCard.subtitle
     ),
     `Totals: ${totalArticles} articles · ${totalTopics} topics · ${totalPublishers} publishers\n${aiLine}`,
-    `Stay curious,\nThe Gist team`,
+    randomFromArray(CLOSINGS),
     "Unsubscribe? It's one tap in the footer of every email.",
   ].filter(Boolean);
 
@@ -628,7 +677,7 @@ export const formatRawBody = (
       ? `\n\nLinks:\n${seen.map((u, i) => `${i + 1}. ${u}`).join("\n")}`
       : "";
 
-  return `${text}${linksBlock}\n\nStay curious,\nThe Gist team\n${
+  return `${text}${linksBlock}\n\n${randomFromArray(CLOSINGS)}\n${
     formattedArticles.aiMetadata.usedFallback
       ? `Structured with human safeguards${
           formattedArticles.aiMetadata.fallbackReason
@@ -765,7 +814,7 @@ export async function isValidEmail(email: string): Promise<boolean> {
     // Partial or unexpected payload from the API. Log for server-side
     // visibility and fall back to the basic regex result (which passed
     // earlier). This ensures we don't block addresses like
-    // peanutandscuffy1@gmail.com when Disify returns only { format: false }
+    // zknewsletter@gmail.com when Disify returns only { format: false }
     // or similarly sparse responses.
     if (process.env.NODE_ENV !== "test") {
       // Keep logs lightweight; include the email and the raw payload shape

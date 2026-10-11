@@ -107,7 +107,7 @@ export const HOME_CONTENT = {
   },
 
   links: {
-    preview: "Preview today's brief",
-    seeBrief: "See today's brief",
+    preview: "Preview the latest brief",
+    seeBrief: "See the latest brief",
   },
 } as const;

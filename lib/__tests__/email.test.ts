@@ -57,7 +57,7 @@ describe("isValidEmail", () => {
     );
 
     // regex passes for this address, so partial response should not reject it
-    const result = await isValidEmail("peanutandscuffy1@gmail.com");
+    const result = await isValidEmail("zknewsletter@gmail.com");
 
     expect(result).toBe(true);
   });
