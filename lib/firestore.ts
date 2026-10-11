@@ -1,20 +1,10 @@
 import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  where,
-  doc,
-  setDoc,
-  orderBy,
-  limit,
   Timestamp,
-  getDoc,
-  deleteField,
-  runTransaction,
-  deleteDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+  FieldValue,
+  FieldPath,
+  type DocumentSnapshot,
+  type Firestore,
+} from "firebase-admin/firestore";
 
 import { db } from "@/lib/firebase";
 // Use Node's built-in crypto.randomUUID to avoid CJS/ESM interop issues with uuid
@@ -151,10 +141,8 @@ export interface NewsletterJob extends EmailSendStatus {
 
 export async function addSubscriber(email: string): Promise<boolean> {
   try {
-    const subscribersRef = collection(db, "subscribers");
-    const existing = await getDocs(
-      query(subscribersRef, where("email", "==", email))
-    );
+    const subscribersRef = db.collection("subscribers");
+    const existing = await subscribersRef.where("email", "==", email).get();
 
     if (!existing.empty) {
       return false;
@@ -163,11 +151,11 @@ export async function addSubscriber(email: string): Promise<boolean> {
     const payload = {
       email: email.toLowerCase().trim(),
       // Use serverTimestamp to avoid client-side Date serialization issues
-      subscribedAt: serverTimestamp(),
+      subscribedAt: FieldValue.serverTimestamp(),
       isActive: true,
     };
 
-    await addDoc(subscribersRef, payload);
+    await subscribersRef.add(payload);
 
     return true;
   } catch (error) {
@@ -178,10 +166,8 @@ export async function addSubscriber(email: string): Promise<boolean> {
 
 export async function getActiveSubscribers(): Promise<string[]> {
   try {
-    const subscribersRef = collection(db, "subscribers");
-    const snapshot = await getDocs(
-      query(subscribersRef, where("isActive", "==", true))
-    );
+    const subscribersRef = db.collection("subscribers");
+    const snapshot = await subscribersRef.where("isActive", "==", true).get();
 
     const emails: string[] = [];
     snapshot.forEach((docSnapshot) => {
@@ -212,7 +198,7 @@ export async function createNewsletterJobFromNews(payload: {
 }): Promise<NewsletterJob> {
   try {
     const id = payload.sendId ?? generateSendId();
-    const ref = doc(db, SEND_COLLECTION, id);
+    const ref = db.collection(SEND_COLLECTION).doc(id);
     const now = new Date();
 
     const computedStatus =
@@ -247,7 +233,7 @@ export async function createNewsletterJobFromNews(payload: {
     // Save topics to subcollection
     await saveTopicsToSubcollection(id, payload.topics);
 
-    await setDoc(ref, job);
+    await ref.set(job);
     return job;
   } catch (error) {
     console.error("Error creating newsletter job:", error);
@@ -267,14 +253,13 @@ export async function findActiveNewsCollectionJob(): Promise<{
   job: NewsletterJob;
 } | null> {
   try {
-    const jobsRef = collection(db, SEND_COLLECTION);
-    const jobsQuery = query(
-      jobsRef,
-      where("status", "==", "news-collecting"),
-      orderBy("startedAt", "asc"),
-      limit(1)
-    );
-    const snapshot = await getDocs(jobsQuery);
+    const jobsRef = db.collection(SEND_COLLECTION);
+    const snapshot = await jobsRef
+      .where("status", "==", "news-collecting")
+      .orderBy("startedAt", "asc")
+      .limit(1)
+      .get();
+
     if (snapshot.empty) {
       return null;
     }
@@ -313,10 +298,13 @@ export async function appendNewsBatchToJob(params: {
   const { id, expectedCursor, newTopics, cursorIncrement, totalSources } =
     params;
 
-  const topicsCollectionRef = collection(db, SEND_COLLECTION, id, "topics");
-  const existingTopicsSnapshot = await getDocs(
-    query(topicsCollectionRef, orderBy("__name__"))
-  );
+  const topicsCollectionRef = db
+    .collection(SEND_COLLECTION)
+    .doc(id)
+    .collection("topics");
+  const existingTopicsSnapshot = await topicsCollectionRef
+    .orderBy(FieldPath.documentId())
+    .get();
   const existingTopics: SerializedTopicNewsGroup[] = [];
   existingTopicsSnapshot.forEach((docSnapshot) => {
     existingTopics.push(docSnapshot.data() as SerializedTopicNewsGroup);
@@ -330,11 +318,11 @@ export async function appendNewsBatchToJob(params: {
     params.incomingArticlesSummary ?? computeArticlesSummary(mergedTopics);
   const shouldRewriteTopics = mergeResult.appendedArticles > 0;
 
-  return runTransaction(db, async (transaction) => {
-    const ref = doc(db, SEND_COLLECTION, id);
+  return db.runTransaction(async (transaction) => {
+    const ref = db.collection(SEND_COLLECTION).doc(id);
     const snapshot = await transaction.get(ref);
 
-    if (!snapshot.exists()) {
+    if (!snapshot.exists) {
       throw new Error(`Newsletter job ${id} not found`);
     }
 
@@ -381,7 +369,7 @@ export async function appendNewsBatchToJob(params: {
       });
 
       mergedTopics.forEach((topic, index) => {
-        const topicRef = doc(topicsCollectionRef, formatTopicDocId(index));
+        const topicRef = topicsCollectionRef.doc(formatTopicDocId(index));
         transaction.set(topicRef, topic);
       });
     }
@@ -407,14 +395,13 @@ async function queryNewsletterJobs(
   const results: Array<{ id: string; job: NewsletterJob }> = [];
 
   for (const status of statuses) {
-    const jobsRef = collection(db, SEND_COLLECTION);
-    const jobsQuery = query(
-      jobsRef,
-      where("status", "==", status),
-      orderBy("startedAt", "asc"),
-      limit(1)
-    );
-    const snapshot = await getDocs(jobsQuery);
+    const jobsRef = db.collection(SEND_COLLECTION);
+    const snapshot = await jobsRef
+      .where("status", "==", status)
+      .orderBy("startedAt", "asc")
+      .limit(1)
+      .get();
+
     if (snapshot.empty) {
       continue;
     }
@@ -437,9 +424,9 @@ export async function getNewsletterJob(
   id: string
 ): Promise<NewsletterJob | null> {
   try {
-    const ref = doc(db, SEND_COLLECTION, id);
-    const snapshot = await getDoc(ref);
-    if (!snapshot.exists()) {
+    const ref = db.collection(SEND_COLLECTION).doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) {
       return null;
     }
     const job = snapshot.data() as NewsletterJob & {
@@ -448,13 +435,11 @@ export async function getNewsletterJob(
 
     // Load aiPartial from subcollection
     try {
-      const aiPartialCollection = collection(
-        db,
-        SEND_COLLECTION,
-        id,
-        "aiPartial"
-      );
-      const aiPartialSnapshot = await getDocs(aiPartialCollection);
+      const aiPartialCollection = db
+        .collection(SEND_COLLECTION)
+        .doc(id)
+        .collection("aiPartial");
+      const aiPartialSnapshot = await aiPartialCollection.get();
       const aiPartial: Record<string, any> = {};
       aiPartialSnapshot.forEach((doc) => {
         aiPartial[doc.id] = doc.data();
@@ -574,21 +559,15 @@ export async function getNewsletterJob(
   }
 }
 
-// Legacy helper removed: clustering is now handled as part of the news
-// collection pipeline. Keep the job selection logic centered on `news-ready`
-// for LLM plan consumers.
-
 export async function getNextNewsletterJobNeedingLLM(): Promise<{
   id: string;
   job: NewsletterJob;
 } | null> {
-  const jobsRef = collection(db, SEND_COLLECTION);
-  const jobsQuery = query(
-    jobsRef,
-    where("status", "==", "news-ready"),
-    orderBy("startedAt", "asc")
-  );
-  const snapshot = await getDocs(jobsQuery);
+  const jobsRef = db.collection(SEND_COLLECTION);
+  const snapshot = await jobsRef
+    .where("status", "==", "news-ready")
+    .orderBy("startedAt", "asc")
+    .get();
 
   const jobs: Array<{ id: string; job: NewsletterJob }> = [];
   snapshot.forEach((docSnapshot) => {
@@ -625,9 +604,8 @@ export async function getNextNewsletterJobForSending(): Promise<{
 
 export async function markNewsletterJobAsSending(id: string): Promise<void> {
   try {
-    const ref = doc(db, SEND_COLLECTION, id);
-    await setDoc(
-      ref,
+    const ref = db.collection(SEND_COLLECTION).doc(id);
+    await ref.set(
       {
         status: "sending",
         sendStartedAt: new Date(),
@@ -640,9 +618,6 @@ export async function markNewsletterJobAsSending(id: string): Promise<void> {
   }
 }
 
-// Storage helpers for older clustering flows were removed — the dedicated
-// external clustering endpoint is no longer part of the pipeline.
-
 export async function saveNewsletterPlanStage(
   id: string,
   payload: {
@@ -653,10 +628,10 @@ export async function saveNewsletterPlanStage(
   }
 ): Promise<void> {
   try {
-    const ref = doc(db, SEND_COLLECTION, id);
-    const snapshot = await getDoc(ref);
+    const ref = db.collection(SEND_COLLECTION).doc(id);
+    const snapshot = await ref.get();
 
-    if (!snapshot.exists()) {
+    if (!snapshot.exists) {
       throw new Error(`Newsletter job ${id} not found`);
     }
 
@@ -680,24 +655,24 @@ export async function saveNewsletterPlanStage(
       articlesSummary: totals,
     };
 
-    (update as Record<string, unknown>).error = deleteField();
-    (update as Record<string, unknown>).formattedHtml = deleteField();
-    (update as Record<string, unknown>).formattedText = deleteField();
-    (update as Record<string, unknown>).formattedRawText = deleteField();
+    (update as Record<string, unknown>).error = FieldValue.delete();
+    (update as Record<string, unknown>).formattedHtml = FieldValue.delete();
+    (update as Record<string, unknown>).formattedText = FieldValue.delete();
+    (update as Record<string, unknown>).formattedRawText = FieldValue.delete();
 
     if (remainingCount === 0) {
       update.completedAt = new Date();
       update.pendingRecipients = [];
-      (update as Record<string, unknown>).topics = deleteField();
-      (update as Record<string, unknown>).formattedHtml = deleteField();
-      (update as Record<string, unknown>).formattedText = deleteField();
-      (update as Record<string, unknown>).formattedRawText = deleteField();
+      (update as Record<string, unknown>).topics = FieldValue.delete();
+      (update as Record<string, unknown>).formattedHtml = FieldValue.delete();
+      (update as Record<string, unknown>).formattedText = FieldValue.delete();
+      (update as Record<string, unknown>).formattedRawText = FieldValue.delete();
 
       // Delete topics from subcollection
       await deleteTopicsSubcollection(id);
     }
 
-    await setDoc(ref, update, { merge: true });
+    await ref.set(update, { merge: true });
   } catch (error) {
     console.error("Error saving newsletter plan stage:", error);
     throw new Error("Failed to save newsletter plan stage");
@@ -715,10 +690,10 @@ export async function recordNewsletterSendBatch(
   }
 ): Promise<void> {
   try {
-    const ref = doc(db, SEND_COLLECTION, id);
-    const snapshot = await getDoc(ref);
+    const ref = db.collection(SEND_COLLECTION).doc(id);
+    const snapshot = await ref.get();
 
-    if (!snapshot.exists()) {
+    if (!snapshot.exists) {
       throw new Error(`Newsletter job ${id} not found`);
     }
 
@@ -726,8 +701,7 @@ export async function recordNewsletterSendBatch(
     const now = new Date();
 
     if (payload.error) {
-      await setDoc(
-        ref,
+      await ref.set(
         {
           status: "failed",
           error: payload.error,
@@ -752,7 +726,7 @@ export async function recordNewsletterSendBatch(
       lastBatchAt: now,
     };
 
-    (update as Record<string, unknown>).error = deleteField();
+    (update as Record<string, unknown>).error = FieldValue.delete();
 
     if (!job.sendStartedAt) {
       update.sendStartedAt = now;
@@ -767,16 +741,16 @@ export async function recordNewsletterSendBatch(
     if (remaining.length === 0) {
       update.completedAt = now;
       update.pendingRecipients = [];
-      (update as Record<string, unknown>).topics = deleteField();
-      (update as Record<string, unknown>).formattedHtml = deleteField();
-      (update as Record<string, unknown>).formattedText = deleteField();
-      (update as Record<string, unknown>).formattedRawText = deleteField();
+      (update as Record<string, unknown>).topics = FieldValue.delete();
+      (update as Record<string, unknown>).formattedHtml = FieldValue.delete();
+      (update as Record<string, unknown>).formattedText = FieldValue.delete();
+      (update as Record<string, unknown>).formattedRawText = FieldValue.delete();
 
       // Delete topics from subcollection
       await deleteTopicsSubcollection(id);
     }
 
-    await setDoc(ref, update, { merge: true });
+    await ref.set(update, { merge: true });
   } catch (error) {
     console.error("Error recording newsletter batch:", error);
     throw new Error("Failed to record newsletter batch");
@@ -789,9 +763,11 @@ export async function getEmailSendStatus(
   id: string
 ): Promise<EmailSendStatus | null> {
   try {
-    const statuses = await getDocs(
-      query(collection(db, SEND_COLLECTION), where("id", "==", id), limit(1))
-    );
+    const statuses = await db
+      .collection(SEND_COLLECTION)
+      .where("id", "==", id)
+      .limit(1)
+      .get();
 
     if (statuses.empty) {
       return null;
@@ -829,12 +805,11 @@ export async function getRecentEmailSends(
   limitNum: number = 20
 ): Promise<EmailSendStatus[]> {
   try {
-    const statusesQuery = query(
-      collection(db, SEND_COLLECTION),
-      orderBy("startedAt", "desc"),
-      limit(limitNum)
-    );
-    const snapshot = await getDocs(statusesQuery);
+    const snapshot = await db
+      .collection(SEND_COLLECTION)
+      .orderBy("startedAt", "desc")
+      .limit(limitNum)
+      .get();
 
     const statuses: EmailSendStatus[] = [];
     snapshot.forEach((docSnapshot) => {
@@ -873,8 +848,8 @@ export async function saveNewsletterPlan(
   plan: LLMNewsletterPlan
 ): Promise<void> {
   try {
-    const ref = doc(db, "newsletterPlans", id);
-    await setDoc(ref, {
+    const ref = db.collection("newsletterPlans").doc(id);
+    await ref.set({
       plan,
       createdAt: new Date(),
     });
@@ -888,12 +863,15 @@ export async function getNewsletterPlan(
   id: string
 ): Promise<LLMNewsletterPlan | null> {
   try {
-    const ref = doc(db, "newsletterPlans", id);
-    const snapshot = await getDoc(ref);
-    if (!snapshot.exists()) {
+    const ref = db.collection("newsletterPlans").doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) {
       return null;
     }
     const data = snapshot.data();
+    if (!data) {
+      return null;
+    }
     return data.plan as LLMNewsletterPlan;
   } catch (error) {
     console.error("Error getting newsletter plan:", error);
@@ -908,19 +886,19 @@ export async function saveTopicsToSubcollection(
   topics: SerializedTopicNewsGroup[]
 ): Promise<void> {
   try {
-    const operations: Promise<void>[] = [];
-    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
+    const operations: Promise<unknown>[] = [];
+    const topicsRef = db.collection(SEND_COLLECTION).doc(sendId).collection("topics");
 
     // Delete existing topics first
-    const existingSnapshot = await getDocs(topicsRef);
+    const existingSnapshot = await topicsRef.get();
     existingSnapshot.forEach((doc) => {
-      operations.push(deleteDoc(doc.ref));
+      operations.push(doc.ref.delete());
     });
 
     // Add new topics
     topics.forEach((topic, index) => {
-      const topicRef = doc(topicsRef, formatTopicDocId(index));
-      operations.push(setDoc(topicRef, topic));
+      const topicRef = topicsRef.doc(formatTopicDocId(index));
+      operations.push(topicRef.set(topic));
     });
 
     // Execute all operations
@@ -935,8 +913,8 @@ export async function loadTopicsFromSubcollection(
   sendId: string
 ): Promise<SerializedTopicNewsGroup[]> {
   try {
-    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
-    const snapshot = await getDocs(query(topicsRef, orderBy("__name__")));
+    const topicsRef = db.collection(SEND_COLLECTION).doc(sendId).collection("topics");
+    const snapshot = await topicsRef.orderBy(FieldPath.documentId()).get();
 
     const topics: SerializedTopicNewsGroup[] = [];
     snapshot.forEach((doc) => {
@@ -952,12 +930,12 @@ export async function loadTopicsFromSubcollection(
 
 export async function deleteTopicsSubcollection(sendId: string): Promise<void> {
   try {
-    const topicsRef = collection(db, SEND_COLLECTION, sendId, "topics");
-    const snapshot = await getDocs(topicsRef);
+    const topicsRef = db.collection(SEND_COLLECTION).doc(sendId).collection("topics");
+    const snapshot = await topicsRef.get();
 
-    const operations: Promise<void>[] = [];
+    const operations: Promise<unknown>[] = [];
     snapshot.forEach((doc) => {
-      operations.push(deleteDoc(doc.ref));
+      operations.push(doc.ref.delete());
     });
 
     await Promise.all(operations);

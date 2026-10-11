@@ -20,11 +20,7 @@ vi.mock("@/lib/llm", () => ({
   generateNewsletterPlan: vi.fn(),
 }));
 
-vi.mock("@/lib/firebase", () => ({
-  db: {},
-}));
-
-vi.mock("firebase/firestore", () => {
+vi.mock("@/lib/firebase", () => {
   const deepMerge = (target: any, source: any): any => {
     const output: Record<string, any> = { ...target };
     for (const [key, value] of Object.entries(source)) {
@@ -43,90 +39,73 @@ vi.mock("firebase/firestore", () => {
     return output;
   };
 
-  const toPathKey = (segments: string[]): string => segments.join("/");
-
-  const mirrorAiPartialToParent = (ref: any, value: any | undefined) => {
-    if (!ref.parentDocPath || !ref.meta?.isAiPartial) {
+  const mirrorAiPartialToParent = (refPath: string, value: any) => {
+    const segments = refPath.split("/");
+    if (segments.length < 4) {
       return;
     }
-
-    const parentDoc = firestoreDocStore.get(ref.parentDocPath) ?? {};
-    const nextAiPartial = { ...(parentDoc.aiPartial ?? {}) };
-
-    if (value === undefined) {
-      delete nextAiPartial[ref.id];
-    } else {
-      nextAiPartial[ref.id] = value;
+    if (segments[segments.length - 2] !== "aiPartial") {
+      return;
     }
-
-    parentDoc.aiPartial = nextAiPartial;
-    firestoreDocStore.set(ref.parentDocPath, parentDoc);
+    const parentDocPath = segments.slice(0, -2).join("/");
+    const topicId = segments[segments.length - 1];
+    const parentDoc = firestoreDocStore.get(parentDocPath) ?? {};
+    const nextAiPartial = { ...(parentDoc.aiPartial ?? {}) };
+    if (value === undefined) {
+      delete nextAiPartial[topicId];
+    } else {
+      nextAiPartial[topicId] = value;
+    }
+    firestoreDocStore.set(parentDocPath, {
+      ...parentDoc,
+      aiPartial: nextAiPartial,
+    });
   };
 
-  return {
-    doc: (_db: unknown, ...segments: string[]) => {
-      if (segments.length < 2 || segments.length % 2 !== 0) {
-        throw new Error("Invalid Firestore document path segments");
-      }
+  const makeRef = (path: string) => ({
+    path,
+    collection: (name: string) => ({
+      doc: (id: string) => makeRef(`${path}/${name}/${id}`),
+    }),
+  });
 
-      const path = toPathKey(segments);
-      const collection = segments[segments.length - 2];
-      const id = segments[segments.length - 1];
-      const parentDocSegments = segments.slice(0, -2);
-      const parentDocPath = parentDocSegments.length
-        ? toPathKey(parentDocSegments)
-        : undefined;
-
-      return {
-        path,
-        collection,
-        id,
-        parentDocPath,
-        meta: {
-          isAiPartial:
-            segments.length >= 4 &&
-            segments[segments.length - 2] === "aiPartial",
-        },
-      };
-    },
-    runTransaction: vi.fn(async (_db, updater) => {
+  const db = {
+    collection: (name: string) => ({
+      doc: (id: string) => makeRef(`${name}/${id}`),
+    }),
+    runTransaction: vi.fn(async (updater: (transaction: any) => Promise<any>) => {
       const transaction = {
         async get(ref: { path: string }) {
           const data = firestoreDocStore.get(ref.path);
           return {
-            exists: () => data !== undefined,
+            exists: data !== undefined,
             data: () => data,
           };
         },
         set(
-          ref: { path: string; parentDocPath?: string; meta?: any; id: string },
+          ref: { path: string },
           value: any,
           options?: { merge?: boolean }
         ) {
-          if (options?.merge) {
-            const current = firestoreDocStore.get(ref.path) ?? {};
-            const merged = deepMerge(current, value);
-            firestoreDocStore.set(ref.path, merged);
-            mirrorAiPartialToParent(ref, merged);
-          } else {
-            firestoreDocStore.set(ref.path, value);
-            mirrorAiPartialToParent(ref, value);
-          }
+          const current = firestoreDocStore.get(ref.path);
+          const stored =
+            options?.merge && current
+              ? deepMerge(current, value)
+              : value;
+          firestoreDocStore.set(ref.path, stored);
+          mirrorAiPartialToParent(ref.path, stored);
         },
-        delete(ref: {
-          path: string;
-          parentDocPath?: string;
-          meta?: any;
-          id: string;
-        }) {
+        delete(ref: { path: string }) {
           firestoreDocStore.delete(ref.path);
-          mirrorAiPartialToParent(ref, undefined);
+          mirrorAiPartialToParent(ref.path, undefined);
         },
       };
 
       return updater(transaction);
     }),
   };
+
+  return { db };
 });
 
 vi.mock("@/lib/firestore", () => ({

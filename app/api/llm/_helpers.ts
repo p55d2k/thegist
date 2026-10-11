@@ -11,7 +11,6 @@ import {
 } from "@/lib/firestore";
 import { generateNewsletterPlan } from "@/lib/llm";
 import { db } from "@/lib/firebase";
-import { doc, runTransaction } from "firebase/firestore";
 
 const SEND_COLLECTION = "emailSends";
 const DEFAULT_EXTRA_CANDIDATES = 5;
@@ -361,11 +360,10 @@ const persistLLMTopicPartial = async (
   record: LLMTopicPartialRecord,
   force: boolean
 ): Promise<void> => {
-  const ref = doc(db, SEND_COLLECTION, sendId);
-
-  await runTransaction(db, async (transaction) => {
+  await db.runTransaction(async (transaction) => {
+    const ref = db.collection(SEND_COLLECTION).doc(sendId);
     const snapshot = await transaction.get(ref);
-    if (!snapshot.exists()) {
+    if (!snapshot.exists) {
       throw new LLMTopicProcessingError(
         404,
         `Newsletter job ${sendId} not found`
@@ -373,9 +371,13 @@ const persistLLMTopicPartial = async (
     }
 
     // Check if topic is already processed (for force=false)
-    const partialRef = doc(db, SEND_COLLECTION, sendId, "aiPartial", topic);
+    const partialRef = db
+      .collection(SEND_COLLECTION)
+      .doc(sendId)
+      .collection("aiPartial")
+      .doc(topic);
     const partialSnapshot = await transaction.get(partialRef);
-    if (partialSnapshot.exists() && !force) {
+    if (partialSnapshot.exists && !force) {
       const existing = partialSnapshot.data() as LLMTopicPartialRecord;
       throw new LLMTopicAlreadyProcessedError(existing);
     }

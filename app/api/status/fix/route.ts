@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 const AUTH_HEADER = "authorization";
@@ -37,7 +36,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the status directly
-    const statusRef = doc(db, "emailSends", sendId);
+    const statusRef = db.collection("emailSends").doc(sendId);
     const updateData: any = {
       completedAt: new Date(),
       status,
@@ -59,7 +58,7 @@ export async function POST(request: NextRequest) {
         : 0;
     }
 
-    await setDoc(statusRef, updateData, { merge: true });
+    await statusRef.set(updateData, { merge: true });
 
     return NextResponse.json({
       message: "Status updated successfully",
