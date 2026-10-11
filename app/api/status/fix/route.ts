@@ -2,8 +2,30 @@ import { NextRequest, NextResponse } from "next/server";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+const AUTH_HEADER = "authorization";
+
+const ensureAuthorized = (request: NextRequest): NextResponse | null => {
+  const token = process.env.NEWSLETTER_JOB_TOKEN;
+  if (!token) {
+    return null;
+  }
+
+  const header = request.headers.get(AUTH_HEADER);
+  const expected = `Bearer ${token}`;
+  if (header !== expected) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return null;
+};
+
 export async function POST(request: NextRequest) {
   try {
+    const authResponse = ensureAuthorized(request);
+    if (authResponse) {
+      return authResponse;
+    }
+
     const body = await request.json();
     const { sendId, status, messageId, accepted, rejected } = body;
 
