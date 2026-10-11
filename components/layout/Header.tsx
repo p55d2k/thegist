@@ -6,9 +6,9 @@ import Button from "@/components/ui/Button";
 import Logo from "@/components/ui/Logo";
 
 const links = [
-  { href: "/how-it-works", label: "How it Works" },
+  { href: "/#how-it-works", label: "How it Works" },
   { href: "/email-preview", label: "Preview Brief" },
-  { href: "/faq", label: "FAQ" },
+  { href: "/#faq", label: "FAQ" },
 ];
 
 export default function Header() {
