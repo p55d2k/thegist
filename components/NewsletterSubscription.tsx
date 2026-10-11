@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { FiCpu } from "react-icons/fi";
-import { isValidEmail } from "@/lib/email";
+import { EMAIL_REGEX } from "@/constants/config";
 
 interface NewsletterSubscriptionProps {
   className?: string;
@@ -19,29 +19,11 @@ export default function NewsletterSubscription({
     "idle"
   );
   const [message, setMessage] = useState("");
-  const [emailValid, setEmailValid] = useState<boolean | null>(null);
-  const [emailValidating, setEmailValidating] = useState(false);
 
-  useEffect(() => {
-    if (!email.trim()) {
-      setEmailValid(null);
-      return;
-    }
-
-    const validate = async () => {
-      setEmailValidating(true);
-      try {
-        const valid = await isValidEmail(email.trim());
-        setEmailValid(valid);
-      } catch {
-        setEmailValid(false);
-      } finally {
-        setEmailValidating(false);
-      }
-    };
-
-    validate();
-  }, [email]);
+  const trimmedEmail = email.trim();
+  // Cheap client-side format check; the server runs the authoritative
+  // validation (regex + external checks + rate limit) on submit.
+  const emailValid = trimmedEmail ? EMAIL_REGEX.test(trimmedEmail) : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,7 +125,7 @@ export default function NewsletterSubscription({
               tabIndex={-1}
               autoComplete="off"
             />
-            {email && emailValid === false && !emailValidating && (
+            {email && emailValid === false && (
               <motion.p
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -164,12 +146,7 @@ export default function NewsletterSubscription({
             }}
             whileTap={{ scale: 0.98 }}
             type="submit"
-            disabled={
-              isSubmitting ||
-              !email.trim() ||
-              emailValid !== true ||
-              emailValidating
-            }
+            disabled={isSubmitting || !email.trim() || emailValid !== true}
             className="w-full rounded-xl bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 px-4 sm:px-6 py-3 text-xs sm:text-sm font-semibold uppercase tracking-[0.1em] sm:tracking-[0.2em] text-white transition-all duration-300 hover:from-blue-400 hover:via-indigo-500 hover:to-purple-400 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-40 relative overflow-hidden"
           >
             <span className="relative z-10">
