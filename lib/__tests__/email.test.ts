@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { isValidEmail } from "@/lib/email";
+import { isValidEmail } from "@/lib/email-validation";
 
 beforeEach(() => {
   vi.restoreAllMocks();
