@@ -10,7 +10,7 @@ import {
   computeTotalsFromPlan,
   buildHtml,
   buildText,
-} from "@/lib/email";
+} from "@/lib/email-render";
 
 const EmailPreview = () => {
   const router = useRouter();

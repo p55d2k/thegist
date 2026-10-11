@@ -1,0 +1,656 @@
+// Client-safe email rendering helpers.
+//
+// Kept free of server-only and LLM imports so client pages (e.g. the
+// email preview) can render newsletters without pulling the LLM pipeline
+// (and its SDK deps) into the browser bundle. lib/email.ts re-exports
+// these for server-side callers.
+
+import { getGreeting, getTimeBasedGreeting } from "@/lib/date";
+import { EMAIL_CONTENT, HTML_ENTITIES } from "@/constants/email";
+
+const MAIN_HEADINGS = [
+  "Here's the gist.",
+  "Your daily digest.",
+  "The essential briefing.",
+  "Today's key insights.",
+  "What you need to know.",
+  "The morning roundup.",
+  "The evening update.",
+  "Breaking it down.",
+  "The news in focus.",
+  "Today's highlights.",
+];
+
+const INTRO_VARIATIONS = [
+  "Our AI skimmed 100+ sources so you don't have to. Here's what actually matters today",
+  "We analyzed hundreds of articles to bring you the most important stories",
+  "Curating the day's most relevant news from across the web",
+  "Distilling today's news into what really counts",
+  "Finding the signal in today's information noise",
+  "Bringing you the stories that shaped the day",
+  "Your curated selection of today's top stories",
+  "The news that moved markets and minds today",
+  "Today's most impactful developments",
+  "What everyone will be talking about tomorrow",
+];
+
+const CLOSINGS = [
+  "Stay curious,\nThe Gist team",
+  "Keep exploring,\nThe Gist team",
+  "Until next time,\nThe Gist team",
+  "Stay informed,\nThe Gist team",
+  "Keep learning,\nThe Gist team",
+  "See you tomorrow,\nThe Gist team",
+  "Stay engaged,\nThe Gist team",
+  "Keep discovering,\nThe Gist team",
+  "Stay ahead,\nThe Gist team",
+  "Keep questioning,\nThe Gist team",
+];
+
+const randomFromArray = <T>(array: T[]): T => {
+  return array[Math.floor(Math.random() * array.length)];
+};
+
+export interface FormattedArticles {
+  plan: LLMNewsletterPlan;
+  html: string;
+  text: string;
+  totalTopics: number;
+  totalArticles: number;
+  totalPublishers: number;
+  aiMetadata: {
+    model: string;
+    usedFallback: boolean;
+    fallbackReason?: string;
+  };
+}
+
+const SECTION_COPY: Record<
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">,
+  { title: string; subtitle: string }
+> = {
+  commentaries: {
+    title: "Hot takes",
+    subtitle: "Deeper dives that add context without the jargon.",
+  },
+  international: {
+    title: "Around the world",
+    subtitle: "What's happening globally while you were scrolling.",
+  },
+  politics: {
+    title: "Politics",
+    subtitle: "Who's winning, who's losing, and why you should care.",
+  },
+  business: {
+    title: "Business",
+    subtitle: "Money moves, market chaos, and what it means for your wallet.",
+  },
+  tech: {
+    title: "Tech",
+    subtitle: "New drops, big fails, and the internet's latest obsession.",
+  },
+  sport: {
+    title: "Sport",
+    subtitle: "The highlights, upsets, and moments everyone's replaying.",
+  },
+  culture: {
+    title: "Culture",
+    subtitle: "What's trending, who's talking, and why it slaps.",
+  },
+  entertainment: {
+    title: "Entertainment",
+    subtitle: "Celebrity buzz, blockbuster news, and pop culture moments.",
+  },
+  science: {
+    title: "Science",
+    subtitle: "Breakthrough discoveries and the wonders of our world.",
+  },
+  lifestyle: {
+    title: "Lifestyle",
+    subtitle: "Health tips, travel hacks, and the good life.",
+  },
+  wildCard: {
+    title: "Wildcard",
+    subtitle: "The story you didn't see coming but can't stop thinking about.",
+  },
+};
+
+const decodeHtmlEntities = (value: string): string => {
+  const namedEntities: Record<string, string> = HTML_ENTITIES.named;
+
+  return value.replace(
+    /&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g,
+    (_, entity: string) => {
+      if (entity.startsWith("#x") || entity.startsWith("#X")) {
+        const codePoint = Number.parseInt(entity.slice(2), 16);
+        return Number.isNaN(codePoint) ? _ : String.fromCodePoint(codePoint);
+      }
+      if (entity.startsWith("#")) {
+        const codePoint = Number.parseInt(entity.slice(1), 10);
+        return Number.isNaN(codePoint) ? _ : String.fromCodePoint(codePoint);
+      }
+      return namedEntities[entity] ?? _;
+    }
+  );
+};
+
+const stripHtml = (value: string): string =>
+  decodeHtmlEntities(
+    value
+      .replace(/<[^>]*>/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+
+const truncate = (
+  value: string,
+  length: number = EMAIL_CONTENT.truncateLength
+): string => (value.length > length ? `${value.slice(0, length - 1)}…` : value);
+
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const formatDate = (date: Date): string =>
+  new Intl.DateTimeFormat(
+    EMAIL_CONTENT.dateLocale,
+    EMAIL_CONTENT.dateOptions
+  ).format(date);
+
+const formatMeta = (item: NewsletterSectionItem): string => {
+  const formattedDate = formatDate(new Date(item.pubDate));
+  return `${escapeHtml(item.publisher)} · ${escapeHtml(
+    item.topic
+  )} · ${escapeHtml(formattedDate)}`;
+};
+
+const renderHighlightCard = (
+  item: NewsletterSectionItem,
+  index: number
+): string => {
+  return `<article style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin-bottom: 12px;">
+    <span style="font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">#${
+      index + 1
+    }</span>
+    <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 12px 0;">${escapeHtml(
+      item.title
+    )}</h3>
+    <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 12px 0;">${escapeHtml(
+      truncate(stripHtml(item.summary), EMAIL_CONTENT.summaryTruncateLength)
+    )}</p>
+    <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+      item.link
+    )}">Read the source</a>
+    <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+      item
+    )}</div>
+  </article>`;
+};
+
+const renderSectionCards = (items: NewsletterSectionItem[]): string =>
+  items
+    .map(
+      (
+        item
+      ) => `<article style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin-bottom: 16px;">
+        <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 0 0 12px 0;">${escapeHtml(
+          item.title
+        )}</h3>
+        <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 12px 0;">${escapeHtml(
+          truncate(stripHtml(item.summary))
+        )}</p>
+        <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+          item.link
+        )}">Read the source</a>
+        <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+          item
+        )}</div>
+    </article>`
+    )
+    .join("");
+
+const renderSection = (
+  key: keyof typeof SECTION_COPY,
+  items: NewsletterSectionItem[]
+): string => {
+  if (items.length === 0) {
+    return "";
+  }
+
+  const { title, subtitle } = SECTION_COPY[key];
+
+  return `<section style="margin-bottom: 32px; border-top: 1px solid #e2e8f0; padding-top: 32px;">
+    <div style="margin-bottom: 16px;">
+      <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">${escapeHtml(
+        title
+      )}</h2>
+      <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+        subtitle
+      )}</p>
+    </div>
+    <div>${renderSectionCards(items)}</div>
+  </section>`;
+};
+
+const renderWildCard = (items: NewsletterSectionItem[]): string => {
+  if (items.length === 0) {
+    return "";
+  }
+
+  const [item] = items;
+
+  return `<section style="margin-bottom: 32px; border-top: 1px solid #e2e8f0; padding-top: 32px;">
+    <div style="margin-bottom: 16px;">
+      <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">${escapeHtml(
+        SECTION_COPY.wildCard.title
+      )}</h2>
+      <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+        SECTION_COPY.wildCard.subtitle
+      )}</p>
+    </div>
+    <article style="background-color: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 24px;">
+      <h3 style="font-size: 16px; font-weight: 500; line-height: 1.5; color: #1e293b; margin: 0 0 12px 0;">${escapeHtml(
+        item.title
+      )}</h3>
+      <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 12px 0;">${escapeHtml(
+        truncate(stripHtml(item.summary), EMAIL_CONTENT.wildCardTruncateLength)
+      )}</p>
+      <a style="display: inline-block; border-radius: 6px; background-color: #1e293b; padding: 8px 16px; font-size: 14px; font-weight: 500; color: #ffffff; text-decoration: none; margin: 12px 0;" href="${escapeHtml(
+        item.link
+      )}">Open the wildcard</a>
+      <div style="font-size: 12px; color: #64748b; margin-top: 12px;">${formatMeta(
+        item
+      )}</div>
+    </article>
+  </section>`;
+};
+
+export const buildHtml = (formatted: FormattedArticles): string => {
+  const {
+    plan: {
+      essentialReads,
+      commentaries,
+      international,
+      politics,
+      business,
+      tech,
+      sport,
+      culture,
+      wildCard,
+      entertainment,
+      science,
+      lifestyle,
+      summary,
+    },
+    totalArticles,
+    totalTopics,
+    totalPublishers,
+    aiMetadata,
+  } = formatted;
+
+  const aiBadge = aiMetadata.usedFallback
+    ? `Assembled with human safeguards${
+        aiMetadata.fallbackReason
+          ? ` (${escapeHtml(aiMetadata.fallbackReason)})`
+          : ""
+      }`
+    : `Assembled with ${escapeHtml(aiMetadata.model)}`;
+  const generatedOn = formatDate(new Date());
+
+  return `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        /* Email-safe styles */
+        body {
+          margin: 0;
+          padding: 0;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        .email-container {
+          max-width: 680px;
+          margin: 0 auto;
+          padding: 0 24px;
+        }
+        .summary-separator {
+          opacity: 0.6;
+        }
+        @media only screen and (max-width: 640px) {
+          .email-container {
+            padding-left: 16px !important;
+            padding-right: 16px !important;
+          }
+        }
+      </style>
+    </head>
+    <body style="background-color: #f8fafc; padding: 40px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #0f172a; margin: 0;">
+      <div class="email-container">
+  <main style="overflow: hidden; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 32px; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);">
+          <header style="margin-bottom: 32px; text-align: center;">
+            <h1 style="font-size: 30px; font-weight: 600; letter-spacing: -0.025em; color: #0f172a; margin: 0 0 16px 0;">
+              ${escapeHtml(randomFromArray(MAIN_HEADINGS))}
+            </h1>
+            <p style="font-size: 14px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;">
+              Good ${getGreeting()} — ${getTimeBasedGreeting()} ${randomFromArray(
+    INTRO_VARIATIONS
+  )} (${escapeHtml(generatedOn)}).
+            </p>
+            <!-- Email-safe stats: use a table rather than flexbox for broad client support -->
+            <div style="display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
+              <span>${totalArticles} articles</span>
+              <span class="summary-separator" style="color: #94a3b8;">•</span>
+              <span>${totalTopics} topics</span>
+              <span class="summary-separator" style="color: #94a3b8;">•</span>
+              <span>${totalPublishers} publishers</span>
+            </div>
+          </header>
+          
+          <div style="margin-bottom: 32px; border-radius: 8px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 16px; font-size: 14px; line-height: 1.5; color: #334155;">
+            ${escapeHtml(
+              summary ||
+                "We kept it honest: what happened, why it matters, and what might change next. Sources for every pick are linked below."
+            )}
+          </div>
+          ${
+            aiMetadata.usedFallback
+              ? ""
+              : `<section style="margin-bottom: 32px;">
+            <div style="margin-bottom: 16px;">
+              <h2 style="font-size: 16px; font-weight: 600; color: #1e293b; margin: 0 0 8px 0;">Today's essential reads</h2>
+              <p style="font-size: 14px; color: #64748b; margin: 0;">${escapeHtml(
+                essentialReads.overview
+              )}</p>
+            </div>
+            <div>
+              ${essentialReads.highlights
+                .map((item, index) => renderHighlightCard(item, index))
+                .join("")}
+            </div>
+          </section>`
+          }
+          
+          ${renderSection("commentaries", commentaries)}
+          ${renderSection("international", international)}
+          ${renderSection("politics", politics)}
+          ${renderSection("business", business)}
+          ${renderSection("tech", tech)}
+          ${renderSection("sport", sport)}
+          ${renderSection("culture", culture)}
+          ${renderSection("entertainment", entertainment)}
+          ${renderSection("science", science)}
+          ${renderSection("lifestyle", lifestyle)}
+          ${renderWildCard(wildCard)}
+          
+          <footer style="margin-top: 32px; text-align: center; font-size: 14px; color: #64748b;">
+            <p style="margin: 0 0 16px 0;">${escapeHtml(
+              randomFromArray(CLOSINGS)
+            ).replace("\n", "<br/>")}</p>
+            <span style="display: inline-block; border-radius: 6px; border: 1px solid #e2e8f0; background-color: #f8fafc; padding: 4px 12px; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">
+              ${aiBadge}
+            </span>
+            <p style="margin: 16px 0 0 0; font-size: 12px; color: #94a3b8;">Don't want these anymore? One-click unsubscribe lives at the bottom of every send.</p>
+          </footer>
+        </main>
+      </div>
+    </body>
+  </html>`;
+};
+
+export const buildText = (formatted: FormattedArticles): string => {
+  const {
+    plan: {
+      essentialReads,
+      commentaries,
+      international,
+      politics,
+      business,
+      tech,
+      sport,
+      culture,
+      wildCard,
+      entertainment,
+      science,
+      lifestyle,
+      summary,
+    },
+    totalArticles,
+    totalTopics,
+    totalPublishers,
+    aiMetadata,
+  } = formatted;
+
+  const generatedOn = formatDate(new Date());
+  const summaryText = summary?.trim().length
+    ? summary.trim()
+    : "We kept it honest: what happened, why it matters, and what could shift next. Sources for every pick are linked below.";
+
+  const aiLine = aiMetadata.usedFallback
+    ? `Structured with human safeguards${
+        aiMetadata.fallbackReason ? ` (${aiMetadata.fallbackReason})` : ""
+      }`
+    : `AI-assisted via ${aiMetadata.model}`;
+
+  const sectionToText = (
+    title: string,
+    items: NewsletterSectionItem[],
+    label: string
+  ): string => {
+    if (items.length === 0) {
+      return "";
+    }
+
+    const heading = `${title.toUpperCase()} — ${label}`;
+    const entries = items
+      .map((item, index) => {
+        const description = truncate(stripHtml(item.summary));
+        return `${index + 1}. ${item.title}\n${description}\n${item.link}`;
+      })
+      .join("\n\n");
+
+    return `${heading}\n${entries}`;
+  };
+
+  const highlights = essentialReads.highlights
+    .map((item, index) => {
+      const description = truncate(stripHtml(item.summary));
+      return `${index + 1}. ${item.title} — ${description} (${item.link})`;
+    })
+    .join("\n");
+
+  const textSections = [
+    `${randomFromArray(MAIN_HEADINGS)
+      .toUpperCase()
+      .replace(".", "")} — ${generatedOn}`,
+    `Good ${getGreeting()}. ${getTimeBasedGreeting()} ${randomFromArray(
+      INTRO_VARIATIONS
+    ).toLowerCase()}.`,
+    `SUMMARY\n${summaryText}`,
+    ...(aiMetadata.usedFallback
+      ? []
+      : [
+          `TODAY'S ESSENTIAL READS\n${essentialReads.overview}\n\nHighlights:\n${highlights}`,
+        ]),
+    sectionToText(
+      SECTION_COPY.commentaries.title,
+      commentaries,
+      SECTION_COPY.commentaries.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.international.title,
+      international,
+      SECTION_COPY.international.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.politics.title,
+      politics,
+      SECTION_COPY.politics.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.business.title,
+      business,
+      SECTION_COPY.business.subtitle
+    ),
+    sectionToText(SECTION_COPY.tech.title, tech, SECTION_COPY.tech.subtitle),
+    sectionToText(SECTION_COPY.sport.title, sport, SECTION_COPY.sport.subtitle),
+    sectionToText(
+      SECTION_COPY.culture.title,
+      culture,
+      SECTION_COPY.culture.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.entertainment.title,
+      entertainment,
+      SECTION_COPY.entertainment.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.science.title,
+      science,
+      SECTION_COPY.science.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.lifestyle.title,
+      lifestyle,
+      SECTION_COPY.lifestyle.subtitle
+    ),
+    sectionToText(
+      SECTION_COPY.wildCard.title,
+      wildCard,
+      SECTION_COPY.wildCard.subtitle
+    ),
+    `Totals: ${totalArticles} articles · ${totalTopics} topics · ${totalPublishers} publishers\n${aiLine}`,
+    randomFromArray(CLOSINGS),
+    "Unsubscribe? It's one tap in the footer of every email.",
+  ].filter(Boolean);
+
+  return textSections.join("\n\n");
+};
+
+export const formatRawBody = (
+  formattedArticles: FormattedArticles,
+  id: string
+): string => {
+  // If this is a preview send, obfuscate links in plaintext to avoid revealing real URLs
+  const isPreview = id && id.startsWith("preview-");
+  // Collect unique links and replace them with numbered placeholders
+  const seen: string[] = [];
+  const replaceUrl = (url: string) => {
+    const idx = seen.indexOf(url);
+    if (idx !== -1) return isPreview ? `[link:${idx + 1}]` : url;
+    seen.push(url);
+    return isPreview ? `[link:${seen.length}]` : url;
+  };
+
+  const text = formattedArticles.text
+    .split(/\n/)
+    .map((line) =>
+      line.replace(/https?:\/\/[\S]+/g, (match) => replaceUrl(match))
+    )
+    .join("\n");
+
+  // If preview, append a mapping of numbered links so readers can see the real URLs
+  const linksBlock =
+    isPreview && seen.length > 0
+      ? `\n\nLinks:\n${seen.map((u, i) => `${i + 1}. ${u}`).join("\n")}`
+      : "";
+
+  return `${text}${linksBlock}\n\n${randomFromArray(CLOSINGS)}\n${
+    formattedArticles.aiMetadata.usedFallback
+      ? `Structured with human safeguards${
+          formattedArticles.aiMetadata.fallbackReason
+            ? ` (${formattedArticles.aiMetadata.fallbackReason})`
+            : ""
+        }\n`
+      : `AI-assisted via ${formattedArticles.aiMetadata.model}\n`
+  }ID: ${id}`;
+};
+
+export const formatBody = (
+  formattedArticles: FormattedArticles,
+  id: string
+): string => {
+  const html = buildHtml(formattedArticles);
+  return html.replace(
+    "</footer>",
+    `<small style="display:block;margin-top:12px;color:#b3bad0;">ID: ${escapeHtml(
+      id
+    )}</small></footer>`
+  );
+};
+
+export const computeTotalsFromPlan = (
+  plan: LLMNewsletterPlan
+): { totalArticles: number; totalTopics: number; totalPublishers: number } => {
+  const normalizeUrl = (url: string): string => {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = "";
+      if (parsed.hostname.startsWith("www.")) {
+        parsed.hostname = parsed.hostname.slice(4);
+      }
+      if (parsed.protocol === "http:") {
+        parsed.protocol = "https:";
+      }
+      return parsed.toString();
+    } catch (error) {
+      return url.trim();
+    }
+  };
+
+  const orderedSections: Array<{
+    key: keyof Omit<LLMNewsletterPlan, "summary"> | "essentialReads";
+    items: NewsletterSectionItem[];
+  }> = [
+    { key: "essentialReads", items: plan.essentialReads.highlights ?? [] },
+    { key: "commentaries", items: plan.commentaries ?? [] },
+    { key: "international", items: plan.international ?? [] },
+    { key: "politics", items: plan.politics ?? [] },
+    { key: "business", items: plan.business ?? [] },
+    { key: "tech", items: plan.tech ?? [] },
+    { key: "sport", items: plan.sport ?? [] },
+    { key: "culture", items: plan.culture ?? [] },
+    { key: "wildCard", items: plan.wildCard ?? [] },
+    { key: "entertainment", items: plan.entertainment ?? [] },
+    { key: "science", items: plan.science ?? [] },
+    { key: "lifestyle", items: plan.lifestyle ?? [] },
+  ];
+
+  const seenLinks = new Set<string>();
+  const seenPublishers = new Set<string>();
+  const uniqueArticles: NewsletterSectionItem[] = [];
+
+  for (const { items } of orderedSections) {
+    for (const article of items) {
+      if (!article?.link) {
+        continue;
+      }
+      const linkKey = normalizeUrl(article.link);
+      if (seenLinks.has(linkKey)) {
+        continue;
+      }
+      seenLinks.add(linkKey);
+      uniqueArticles.push(article);
+      if (article.publisher) {
+        seenPublishers.add(article.publisher);
+      }
+    }
+  }
+
+  let totalTopics = 0;
+  orderedSections.forEach(({ items }) => {
+    if (items && items.length > 0) {
+      totalTopics += 1;
+    }
+  });
+
+  return {
+    totalArticles: uniqueArticles.length,
+    totalTopics,
+    totalPublishers: seenPublishers.size,
+  };
+};
