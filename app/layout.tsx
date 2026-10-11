@@ -45,21 +45,12 @@ export const metadata: Metadata = {
     description:
       "News that actually matters in 5 minutes. AI reads 100+ sources so you don't have to.",
     siteName: "The Gist",
-    images: [
-      {
-        url: "/og-image.png",
-        width: 1200,
-        height: 630,
-        alt: "The Gist - AI News Brief",
-      },
-    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "The Gist - 5-Minute AI News Brief",
     description:
       "News that actually matters in 5 minutes. AI reads 100+ sources so you don't have to.",
-    images: ["/twitter-card.png"],
     creator: "@thegistnews",
   },
   robots: {
@@ -72,9 +63,6 @@ export const metadata: Metadata = {
       "max-image-preview": "large",
       "max-snippet": -1,
     },
-  },
-  verification: {
-    google: "your-google-verification-code",
   },
   icons: {
     icon: "/favicon.ico",
