@@ -1,3 +1,9 @@
+// LLM planning pipeline: per-topic plan generation, incremental progress
+// tracking (aiPartial subcollection), deduplication, and finalization.
+//
+// Shared by the /api/llm route (step-based, for manual/debug use) and the
+// single worker script, which drives the whole pipeline in-process.
+
 import {
   SECTION_LIMITS,
   SECTION_HINT_MAP,
@@ -6,11 +12,14 @@ import {
 import {
   getNewsletterJob,
   getNextNewsletterJobNeedingLLM,
+  saveNewsletterPlanStage,
   type NewsletterJob,
   type SerializedTopicNewsGroup,
 } from "@/lib/firestore";
-import { generateNewsletterPlan } from "@/lib/llm";
+import { generateNewsletterPlan, generateFinalOverview as generateLLMFinalOverview } from "@/lib/llm";
 import { db } from "@/lib/firebase";
+import { getDateString } from "@/lib/date";
+import { EMAIL_CONFIG } from "@/constants/email";
 
 const SEND_COLLECTION = "emailSends";
 const DEFAULT_EXTRA_CANDIDATES = 5;
@@ -287,71 +296,6 @@ const clampExtra = (value: unknown): number => {
     }
   }
   return DEFAULT_EXTRA_CANDIDATES;
-};
-
-const buildCandidateSet = (
-  topicGroup: TopicNewsGroup,
-  topicKey: LLMTopicKey,
-  topics: TopicNewsGroup[],
-  limit: number,
-  extra: number,
-  usedKeys: Set<string>
-): {
-  primary: ProcessedNewsItem[];
-  candidates: ProcessedNewsItem[];
-  candidateKeys: Set<string>;
-} => {
-  const sortedPrimary = [...topicGroup.items].sort(
-    (a, b) => b.pubDate.getTime() - a.pubDate.getTime()
-  );
-  const primary = sortedPrimary.slice(0, Math.max(1, limit));
-
-  const candidateOrder: ProcessedNewsItem[] = [];
-  const candidateKeys = new Set<string>();
-
-  const addCandidate = (item: ProcessedNewsItem) => {
-    const key = getArticleKey(item);
-    if (candidateKeys.has(key) || usedKeys.has(key)) {
-      return;
-    }
-    candidateKeys.add(key);
-    candidateOrder.push(item);
-  };
-
-  primary.forEach(addCandidate);
-
-  if (extra > 0) {
-    const extras = topics
-      .filter((group) => group !== topicGroup)
-      .flatMap((group) => group.items)
-      .sort((a, b) => b.pubDate.getTime() - a.pubDate.getTime());
-
-    let added = 0;
-    for (const item of extras) {
-      if (added >= extra) {
-        break;
-      }
-      const key = getArticleKey(item);
-      if (candidateKeys.has(key)) {
-        continue;
-      }
-      addCandidate(item);
-      added += 1;
-    }
-  }
-
-  if (candidateOrder.length === 0) {
-    throw new LLMTopicProcessingError(
-      400,
-      `No articles available for topic ${topicKey}`
-    );
-  }
-
-  return {
-    primary,
-    candidates: candidateOrder,
-    candidateKeys,
-  };
 };
 
 const persistLLMTopicPartial = async (
@@ -642,3 +586,541 @@ export const processTopicWithLLM = async (params: {
     aiMetadata: overall?.aiMetadata || record.aiMetadata,
   };
 };
+
+// Finalization -------------------------------------------------------------
+
+const SECTION_SEQUENCE: Array<
+  keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">
+> = [
+  "commentaries",
+  "international",
+  "politics",
+  "business",
+  "tech",
+  "science",
+  "sport",
+  "culture",
+  "entertainment",
+  "lifestyle",
+  "wildCard",
+];
+
+const HEADLINE_STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "with",
+  "without",
+  "into",
+  "onto",
+  "after",
+  "before",
+  "over",
+  "under",
+  "more",
+  "than",
+  "less",
+  "to",
+  "from",
+  "for",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "about",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "being",
+  "been",
+  "has",
+  "have",
+  "had",
+  "will",
+  "would",
+  "can",
+  "could",
+  "should",
+  "may",
+  "might",
+  "must",
+  "do",
+  "does",
+  "did",
+  "done",
+  "new",
+  "latest",
+  "breaking",
+  "update",
+  "report",
+  "review",
+  "video",
+  "podcast",
+  "exclusive",
+]);
+
+const normalizeArticleUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    if (parsed.hostname.startsWith("www.")) {
+      parsed.hostname = parsed.hostname.slice(4);
+    }
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "https:";
+    }
+    return parsed.toString();
+  } catch (error) {
+    return url.trim();
+  }
+};
+
+const tokenizeHeadline = (value: string): string[] =>
+  value
+    .toLowerCase()
+    .replace(/[\u2019'’`]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !HEADLINE_STOPWORDS.has(token));
+
+const buildTokenSet = (
+  item: NewsletterSectionItem
+): { tokens: Set<string>; hasTokens: boolean } => {
+  const headlineTokens = tokenizeHeadline(item.title ?? "");
+  const summaryTokens = tokenizeHeadline(item.summary ?? "");
+  const combined = new Set<string>([...headlineTokens, ...summaryTokens]);
+  return {
+    tokens: combined,
+    hasTokens: combined.size > 0,
+  };
+};
+
+const shouldDropAsDuplicate = (
+  currentTokens: Set<string>,
+  existingTokens: Set<string>
+): boolean => {
+  if (currentTokens.size === 0 || existingTokens.size === 0) {
+    return false;
+  }
+
+  let overlapCount = 0;
+  let longOverlap = 0;
+
+  currentTokens.forEach((token) => {
+    if (existingTokens.has(token)) {
+      overlapCount += 1;
+      if (token.length >= 5) {
+        longOverlap += 1;
+      }
+    }
+  });
+
+  if (overlapCount >= 5) {
+    return true;
+  }
+
+  if (overlapCount >= 4 && longOverlap >= 2) {
+    return true;
+  }
+
+  if (overlapCount >= 3) {
+    const minSize = Math.min(currentTokens.size, existingTokens.size);
+    const unionSize = new Set<string>([
+      ...Array.from(currentTokens),
+      ...Array.from(existingTokens),
+    ]).size;
+    const overlapRatio = overlapCount / minSize;
+    const jaccard = overlapCount / unionSize;
+    if (overlapRatio >= 0.55 || jaccard >= 0.45 || longOverlap >= 2) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const deduplicatePlanSections = (
+  plan: LLMNewsletterPlan
+): {
+  plan: LLMNewsletterPlan;
+  removed: Array<{
+    removedTitle: string;
+    keptTitle: string;
+    section: keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">;
+  }>;
+} => {
+  const dedupedPlan: LLMNewsletterPlan = {
+    ...plan,
+    essentialReads: {
+      overview: plan.essentialReads.overview,
+      highlights: [...plan.essentialReads.highlights],
+    },
+    commentaries: [...plan.commentaries],
+    international: [...plan.international],
+    politics: [...plan.politics],
+    business: [...plan.business],
+    tech: [...plan.tech],
+    sport: [...plan.sport],
+    culture: [...plan.culture],
+    wildCard: [...plan.wildCard],
+    entertainment: [...plan.entertainment],
+    science: [...plan.science],
+    lifestyle: [...plan.lifestyle],
+  };
+
+  type DedupRecord = {
+    tokens: Set<string>;
+    link: string;
+    slug?: string;
+    title: string;
+    section: keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">;
+  };
+
+  const seen: DedupRecord[] = [];
+  const removed: Array<{
+    removedTitle: string;
+    keptTitle: string;
+    section: keyof Omit<LLMNewsletterPlan, "essentialReads" | "summary">;
+  }> = [];
+
+  for (const section of SECTION_SEQUENCE) {
+    const items = [...dedupedPlan[section]];
+    const filtered: NewsletterSectionItem[] = [];
+
+    items.forEach((item) => {
+      const normalizedLink = normalizeArticleUrl(item.link);
+      const slugKey = item.slug?.toLowerCase();
+
+      const duplicateByLink = seen.find(
+        (entry) => entry.link === normalizedLink
+      );
+      if (duplicateByLink) {
+        removed.push({
+          removedTitle: item.title,
+          keptTitle: duplicateByLink.title,
+          section,
+        });
+        return;
+      }
+
+      if (slugKey) {
+        const duplicateBySlug = seen.find((entry) => entry.slug === slugKey);
+        if (duplicateBySlug) {
+          removed.push({
+            removedTitle: item.title,
+            keptTitle: duplicateBySlug.title,
+            section,
+          });
+          return;
+        }
+      }
+
+      const { tokens, hasTokens } = buildTokenSet(item);
+      if (hasTokens) {
+        const duplicateByTokens = seen.find((entry) =>
+          shouldDropAsDuplicate(tokens, entry.tokens)
+        );
+
+        if (duplicateByTokens) {
+          removed.push({
+            removedTitle: item.title,
+            keptTitle: duplicateByTokens.title,
+            section,
+          });
+          return;
+        }
+      }
+
+      filtered.push(item);
+      seen.push({
+        tokens,
+        link: normalizedLink,
+        slug: slugKey ?? undefined,
+        title: item.title,
+        section,
+      });
+    });
+
+    dedupedPlan[section] = filtered;
+  }
+
+  return { plan: dedupedPlan, removed };
+};
+
+export type LLMPlanningStepResult =
+  | {
+      step: "topic";
+      message: string;
+      sendId: string;
+      topic: LLMTopicKey;
+      articlesUsed: number;
+      candidatesFetched: number;
+    }
+  | {
+      step: "finalize";
+      message: string;
+      sendId: string;
+      totalTopics: number;
+      totalArticles: number;
+      totalPublishers: number;
+    };
+
+/**
+ * Process the next unprocessed topic, or finalize the plan once all topics
+ * are processed. Mirrors the incremental /api/llm behavior; used by both the
+ * route and the single worker.
+ */
+export async function runLLMPlanningStep(
+  sendId: string
+): Promise<LLMPlanningStepResult> {
+  const { id, job, topics } = await loadLLMJobOrThrow(sendId);
+
+  if (job.status === "success") {
+    return {
+      step: "finalize",
+      message: "Job already completed",
+      sendId: id,
+      totalTopics: topics.length,
+      totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+      totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+    };
+  }
+
+  if (topics.length === 0) {
+    throw new LLMTopicProcessingError(
+      400,
+      "No valid topics available for LLM planning"
+    );
+  }
+
+  const nextTopic = getNextTopicToProcess(job, topics);
+
+  if (nextTopic) {
+    const result = await processTopicWithLLM({
+      sendId: id,
+      topic: nextTopic,
+    });
+
+    return {
+      step: "topic",
+      message: result.message,
+      sendId: result.sendId,
+      topic: result.topic,
+      articlesUsed: result.articlesUsed,
+      candidatesFetched: result.candidatesFetched,
+    };
+  }
+
+  return finalizeNewsletterPlan(id);
+}
+
+/**
+ * Generate the final consolidated plan from processed topic partials and
+ * persist it (deduplicated, with essential reads summary). Falls back to a
+ * non-LLM plan if finalization fails.
+ */
+export async function finalizeNewsletterPlan(
+  sendId: string
+): Promise<Extract<LLMPlanningStepResult, { step: "finalize" }>> {
+  const { id, job, topics } = await loadLLMJobOrThrow(sendId);
+
+  const partials = (job as any).aiPartial || {};
+
+  let plan: LLMNewsletterPlan = {
+    essentialReads: {
+      overview:
+        "Today's essential reads cover the most important stories from across the news landscape.",
+      highlights: [],
+    },
+    summary:
+      "A curated selection of today's most significant news stories.",
+    commentaries: partials.commentaries?.section || [],
+    international: partials.international?.section || [],
+    politics: partials.politics?.section || [],
+    business: partials.business?.section || [],
+    tech: partials.tech?.section || [],
+    sport: partials.sport?.section || [],
+    culture: partials.culture?.section || [],
+    wildCard: partials.wildCard?.section || [],
+    entertainment: partials.entertainment?.section || [],
+    science: partials.science?.section || [],
+    lifestyle: partials.lifestyle?.section || [],
+  };
+
+  try {
+    const { plan: dedupedPlan, removed } = deduplicatePlanSections(plan);
+    if (removed.length > 0) {
+      console.log("[llm/finalize] Removed duplicate stories", {
+        removed: removed.slice(0, 5),
+        total: removed.length,
+      });
+    }
+    plan = dedupedPlan;
+
+    // Generate final overview/summary/highlights AFTER deduplication
+    const allSelectedArticles: NewsletterSectionItem[] = [
+      ...plan.commentaries,
+      ...plan.international,
+      ...plan.politics,
+      ...plan.business,
+      ...plan.tech,
+      ...plan.sport,
+      ...plan.culture,
+      ...plan.wildCard,
+      ...plan.entertainment,
+      ...plan.science,
+      ...plan.lifestyle,
+    ];
+
+    const finalOverview = await generateLLMFinalOverview(
+      allSelectedArticles,
+      plan
+    );
+
+    // Update plan with final overview
+    plan.essentialReads.overview = finalOverview.overview;
+    plan.essentialReads.highlights = finalOverview.highlights;
+    plan.summary = finalOverview.summary;
+
+    const highlightLinks = new Set(
+      finalOverview.highlights.map((item) => normalizeArticleUrl(item.link))
+    );
+
+    const filterSection = (
+      items: NewsletterSectionItem[]
+    ): NewsletterSectionItem[] =>
+      items.filter(
+        (item) => !highlightLinks.has(normalizeArticleUrl(item.link))
+      );
+
+    plan.commentaries = filterSection(plan.commentaries);
+    plan.international = filterSection(plan.international);
+    plan.politics = filterSection(plan.politics);
+    plan.business = filterSection(plan.business);
+    plan.tech = filterSection(plan.tech);
+    plan.sport = filterSection(plan.sport);
+    plan.culture = filterSection(plan.culture);
+    plan.entertainment = filterSection(plan.entertainment);
+    plan.science = filterSection(plan.science);
+    plan.lifestyle = filterSection(plan.lifestyle);
+
+    await saveNewsletterPlanStage(id, {
+      plan,
+      aiMetadata: finalOverview.aiMetadata,
+      summaryText: finalOverview.summary,
+      emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+    });
+
+    return {
+      step: "finalize",
+      message: "Newsletter plan generated",
+      sendId: id,
+      totalTopics: topics.length,
+      totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+      totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[llm/finalize] Finalization failed, using fallback plan", {
+      error: message,
+      sendId: id,
+    });
+
+    // Fallback: create a basic plan from partials without LLM calls
+    const fallbackPlan: LLMNewsletterPlan = {
+      essentialReads: {
+        overview:
+          "Today's essential reads cover the most important stories from across the news landscape.",
+        highlights: [],
+      },
+      summary: `Curated newsletter with ${
+        Object.keys(partials).length
+      } processed topics.`,
+      commentaries: partials.commentaries?.section || [],
+      international: partials.international?.section || [],
+      politics: partials.politics?.section || [],
+      business: partials.business?.section || [],
+      tech: partials.tech?.section || [],
+      sport: partials.sport?.section || [],
+      culture: partials.culture?.section || [],
+      wildCard: partials.wildCard?.section || [],
+      entertainment: partials.entertainment?.section || [],
+      science: partials.science?.section || [],
+      lifestyle: partials.lifestyle?.section || [],
+    };
+
+    // Select some highlights from the processed sections
+    const allArticles = [
+      ...fallbackPlan.commentaries,
+      ...fallbackPlan.international,
+      ...fallbackPlan.politics,
+      ...fallbackPlan.business,
+      ...fallbackPlan.tech,
+      ...fallbackPlan.sport,
+      ...fallbackPlan.culture,
+      ...fallbackPlan.entertainment,
+      ...fallbackPlan.science,
+      ...fallbackPlan.lifestyle,
+    ];
+    fallbackPlan.essentialReads.highlights = allArticles.slice(0, 4);
+
+    await saveNewsletterPlanStage(id, {
+      plan: fallbackPlan,
+      aiMetadata: {
+        model: "fallback",
+        usedFallback: true,
+        fallbackReason: `Finalization failed: ${message}`,
+      },
+      summaryText: fallbackPlan.summary,
+      emailSubject: EMAIL_CONFIG.defaultSubject(getDateString()),
+    });
+
+    return {
+      step: "finalize",
+      message: "Newsletter plan generated (fallback)",
+      sendId: id,
+      totalTopics: topics.length,
+      totalArticles: topics.reduce((sum, t) => sum + t.items.length, 0),
+      totalPublishers: new Set(topics.map((t) => t.publisher)).size,
+    };
+  }
+}
+
+/**
+ * Run the full LLM planning stage for a job: process every unprocessed topic
+ * and then finalize the plan. Used by the single worker script.
+ */
+export async function completeLLMPlanning(
+  sendId: string
+): Promise<Extract<LLMPlanningStepResult, { step: "finalize" }>> {
+  const { job, topics } = await loadLLMJobOrThrow(sendId);
+
+  if (job.status === "success") {
+    throw new LLMTopicProcessingError(
+      400,
+      `Newsletter job ${sendId} is already completed`
+    );
+  }
+  if (!isAllTopicsProcessed(job, topics)) {
+    let remaining = getNextTopicToProcess(job, topics);
+    while (remaining) {
+      await processTopicWithLLM({ sendId, topic: remaining });
+      const refreshed = await getNewsletterJob(sendId);
+      if (!refreshed) {
+        throw new LLMTopicProcessingError(
+          404,
+          `Newsletter job ${sendId} disappeared during planning`
+        );
+      }
+      remaining = getNextTopicToProcess(refreshed, deserializeTopics(refreshed.topics ?? []));
+    }
+  }
+
+  return finalizeNewsletterPlan(sendId);
+}
