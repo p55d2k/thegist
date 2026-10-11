@@ -22,19 +22,12 @@ jobs:
     permissions:
       contents: read
     env:
-      NEWSLETTER_API_BASE_URL: ${{ secrets.NEWSLETTER_API_BASE_URL }}
-      NEWSLETTER_JOB_TOKEN: ${{ secrets.NEWSLETTER_JOB_TOKEN }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       NEWSLETTER_SEND_ID: ${{ github.event.inputs.sendId }}
-      NEWSLETTER_SOURCES_PER_RUN: ${{ vars.NEWSLETTER_SOURCES_PER_RUN }}
-      NEWSLETTER_MAX_NEWS_RUNS: ${{ vars.NEWSLETTER_MAX_NEWS_RUNS }}
-      NEWSLETTER_MAX_LLM_RUNS: ${{ vars.NEWSLETTER_MAX_LLM_RUNS }}
-      NEWSLETTER_MAX_SEND_RUNS: ${{ vars.NEWSLETTER_MAX_SEND_RUNS }}
-      NEWSLETTER_SEND_MAX_BATCHES: ${{ vars.NEWSLETTER_SEND_MAX_BATCHES }}
-      NEWSLETTER_REQUEST_TIMEOUT_MS: ${{ vars.NEWSLETTER_REQUEST_TIMEOUT_MS }}
-      NEWSLETTER_NEWS_DELAY_MS: ${{ vars.NEWSLETTER_NEWS_DELAY_MS }}
-      NEWSLETTER_LLM_DELAY_MS: ${{ vars.NEWSLETTER_LLM_DELAY_MS }}
-      NEWSLETTER_SEND_DELAY_MS: ${{ vars.NEWSLETTER_SEND_DELAY_MS }}
-      NEWSLETTER_STATUS_DELAY_MS: ${{ vars.NEWSLETTER_STATUS_DELAY_MS }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+      GOOGLE_USER_EMAIL: ${{ secrets.GOOGLE_USER_EMAIL }}
+      GOOGLE_APP_PASSWORD: ${{ secrets.GOOGLE_APP_PASSWORD }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -48,4 +41,4 @@ jobs:
         run: bun install
 
       - name: Run newsletter automation script
-        run: bun run scripts/send-newsletter.js
+        run: bun run scripts/send-newsletter.ts

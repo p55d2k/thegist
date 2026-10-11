@@ -127,13 +127,17 @@ Available bun/npm scripts:
 
 ### Manual Newsletter Run
 
-Export environment variables and run the automation script:
+Export environment variables and run the automation script (requires Firestore access and a Groq API key):
 
 ```bash
-export NEWSLETTER_API_BASE_URL="https://your-domain.com"
-export NEWSLETTER_JOB_TOKEN="your-token"
-bun run scripts/send-newsletter.js
+export FIREBASE_SERVICE_ACCOUNT='{"type":"service_account",...}' # or FIREBASE_SERVICE_ACCOUNT_PATH=/path/to/key.json
+export GROQ_API_KEY="your-groq-key"
+export GOOGLE_USER_EMAIL="you@gmail.com"
+export GOOGLE_APP_PASSWORD="your-app-password"
+bun run scripts/send-newsletter.ts
 ```
+
+The script runs the whole pipeline in-process: starts (or resumes) a job, collects news, plans with the LLM, and sends every batch. Pass `NEWSLETTER_SEND_ID` to resume an existing job at any stage.
 
 ## API Reference
 
@@ -169,14 +173,16 @@ Configuration in `vitest.config.mts`.
 
 ### GitHub Actions Automation
 
-The repository includes a GitHub Actions workflow (`.github/workflows/newsletter.yml`) that runs daily at 08:00 and 16:00 UTC. It automates the full newsletter pipeline using Bun.
+The repository includes a GitHub Actions workflow (`.github/workflows/newsletter.yml`) that runs daily at 08:00 and 16:00 UTC. It automates the full newsletter pipeline in a single worker using Bun.
 
 **Required Secrets**:
 
-- `NEWSLETTER_API_BASE_URL`
-- `NEWSLETTER_JOB_TOKEN`
+- `FIREBASE_SERVICE_ACCOUNT` — service account JSON string (firebase-admin)
+- `GROQ_API_KEY`
+- `GOOGLE_USER_EMAIL`
+- `GOOGLE_APP_PASSWORD`
 
-**Optional Variables**: Tune delays, batch sizes, etc.
+**Optional**: `GROQ_MODEL`, and `NEWSLETTER_SEND_ID` when dispatching manually to resume a job.
 
 ### Manual Deployment
 
@@ -257,9 +263,10 @@ Create a `.env.local` with the keys from `.env.example`. Important ones used by 
 - GROQ_API_KEY — API key for Groq SDK (used by `lib/llm.ts`)
 - GROQ_MODEL — model id (default: `openai/gpt-oss-20b`) — also configured in `constants/llm.ts`
 - GROQ_TIMEOUT_MS — request timeout in ms for LLM calls (default in code: 20000)
-- NEWSLETTER_JOB_TOKEN — shared secret used by the automation script and protected API endpoints
-- NEXT*PUBLIC_FIREBASE*\* — Firebase client config values (API key, authDomain, projectId, etc.)
-- GOOGLE_USER_EMAIL and GOOGLE_APP_PASSWORD — optional Gmail credentials used by `lib/email.ts` when sending via Nodemailer
+- FIREBASE_SERVICE_ACCOUNT / FIREBASE_SERVICE_ACCOUNT_PATH — firebase-admin credentials (JSON string or path to key file); falls back to application default credentials
+- NEXT_PUBLIC_FIREBASE_PROJECT_ID — optional projectId override for firebase-admin
+- NEWSLETTER_JOB_TOKEN — shared secret used by protected API endpoints (optional; skips auth when unset)
+- GOOGLE_USER_EMAIL and GOOGLE_APP_PASSWORD — Gmail credentials used by `lib/email-send.ts` when sending via Nodemailer
 
 Always keep secrets out of version control. `.env.example` lists all keys expected by the project.
 
@@ -269,14 +276,13 @@ Workflow: `.github/workflows/newsletter.yml` — scheduled at 08:00 UTC and 16:0
 
 - sets up Bun
 - runs `bun install`
-- runs `bun run scripts/send-newsletter.js`
+- runs `bun run scripts/send-newsletter.ts` (the single in-process pipeline worker)
 
 Required repository secrets:
 
-- `NEWSLETTER_API_BASE_URL` — base URL of deployed app
-- `NEWSLETTER_JOB_TOKEN` — secret for protected endpoints
-
-Optional repository variables are forwarded into the script (see the workflow file).
+- `FIREBASE_SERVICE_ACCOUNT` — service account JSON string (firebase-admin)
+- `GROQ_API_KEY`
+- `GOOGLE_USER_EMAIL` / `GOOGLE_APP_PASSWORD`
 
 ## API endpoints (summary)
 

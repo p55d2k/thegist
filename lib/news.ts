@@ -26,13 +26,18 @@ import { computeArticlesSummary } from "@/lib/news-helpers";
 export async function startNewsletterJob(): Promise<{
   sendId: string;
   totalRecipients: number;
+  resumed: boolean;
 }> {
-  // Check if there's already an active newsletter job
+  // Resume any active collection job instead of starting a second one. The
+  // single worker is the only writer, so an existing active job means a
+  // previously interrupted run that should be picked up.
   const activeJob = await findActiveNewsCollectionJob();
   if (activeJob) {
-    throw new Error(
-      `Newsletter job already in progress: ${activeJob.id} (${activeJob.job.status})`
-    );
+    return {
+      sendId: activeJob.id,
+      totalRecipients: activeJob.job.totalRecipients,
+      resumed: true,
+    };
   }
 
   // Get subscribers and create initial empty job
@@ -55,7 +60,11 @@ export async function startNewsletterJob(): Promise<{
     sourcesTotal: 0, // Will be set by first news call
   });
 
-  return { sendId: job.id, totalRecipients: recipients.length };
+  return {
+    sendId: job.id,
+    totalRecipients: recipients.length,
+    resumed: false,
+  };
 }
 
 type FetchNewsResult = {
