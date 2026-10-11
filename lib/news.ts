@@ -1,7 +1,7 @@
 // News collection pipeline: RSS fetching and job-level persistence.
 //
-// Shared by the /api/news route (for manual/debug use) and the single
-// worker script, which drives the whole pipeline in-process.
+// Used by the single worker script, which drives the whole pipeline
+// in-process.
 
 import axios from "axios";
 import { parseStringPromise } from "xml2js";

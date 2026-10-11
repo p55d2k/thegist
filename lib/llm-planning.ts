@@ -1,8 +1,8 @@
 // LLM planning pipeline: per-topic plan generation, incremental progress
 // tracking (aiPartial subcollection), deduplication, and finalization.
 //
-// Shared by the /api/llm route (step-based, for manual/debug use) and the
-// single worker script, which drives the whole pipeline in-process.
+// Used by the single worker script, which drives the whole pipeline
+// in-process.
 
 import {
   SECTION_LIMITS,
@@ -245,7 +245,7 @@ export const loadLLMJobOrThrow = async (
     if (!job.topics || job.topics.length === 0) {
       throw new LLMTopicProcessingError(
         400,
-        "Newsletter job is missing topics. Run /api/news?persist=true first."
+        "Newsletter job is missing topics. Run scripts/send-newsletter.ts to collect news first."
       );
     }
     return { id: sendId, job, topics: deserializeTopics(job.topics) };
@@ -262,7 +262,7 @@ export const loadLLMJobOrThrow = async (
   if (!job.topics || job.topics.length === 0) {
     throw new LLMTopicProcessingError(
       400,
-      "Newsletter job is missing topics. Run /api/news?persist=true first."
+      "Newsletter job is missing topics. Run scripts/send-newsletter.ts to collect news first."
     );
   }
 
@@ -873,8 +873,8 @@ export type LLMPlanningStepResult =
 
 /**
  * Process the next unprocessed topic, or finalize the plan once all topics
- * are processed. Mirrors the incremental /api/llm behavior; used by both the
- * route and the single worker.
+ * are processed. Used by the single worker, which runs it until the plan is
+ * finalized.
  */
 export async function runLLMPlanningStep(
   sendId: string

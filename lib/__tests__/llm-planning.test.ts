@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { NextRequest } from "next/server";
 
-import { POST } from "@/app/api/llm/route";
+import {
+  processTopicWithLLM,
+  runLLMPlanningStep,
+} from "@/lib/llm-planning";
 import {
   getNewsletterJob,
   getNextNewsletterJobNeedingLLM,
@@ -146,15 +148,6 @@ const buildSerializedItem = (
   ...overrides,
 });
 
-const toRequest = (url: string, body?: Record<string, unknown>) =>
-  new NextRequest(url, {
-    method: "POST",
-    headers: body
-      ? new Headers({ "content-type": "application/json" })
-      : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
 const resetJobState = () => {
   jobState.store.clear();
   jobState.nextJob = null;
@@ -164,7 +157,59 @@ const resetFirestoreState = () => {
   firestoreDocStore.clear();
 };
 
-describe("/api/llm route", () => {
+const planFixture = (
+  sections: Partial<LLMNewsletterPlan> = {}
+): { plan: LLMNewsletterPlan; metadata: { model: string; usedFallback: boolean } } => ({
+  plan: {
+    essentialReads: {
+      overview: "Overview",
+      highlights: [
+        {
+          title: "Highlight",
+          summary: "Summary",
+          link: "https://example.com/a1",
+          publisher: "Publisher",
+          topic: "commentaries",
+          slug: "commentaries-article",
+          source: "Source",
+          pubDate: new Date().toISOString(),
+          sectionHints: ["commentaries"],
+        },
+      ],
+    },
+    commentaries: [
+      {
+        title: "Highlight",
+        summary: "Summary",
+        link: "https://example.com/a1",
+        publisher: "Publisher",
+        topic: "commentaries",
+        slug: "commentaries-article",
+        source: "Source",
+        pubDate: new Date().toISOString(),
+        sectionHints: ["commentaries"],
+      },
+    ],
+    international: [],
+    politics: [],
+    business: [],
+    tech: [],
+    sport: [],
+    culture: [],
+    wildCard: [],
+    entertainment: [],
+    science: [],
+    lifestyle: [],
+    summary: "Plan summary",
+    ...sections,
+  },
+  metadata: {
+    model: "test-model",
+    usedFallback: false,
+  },
+});
+
+describe("lib/llm-planning", () => {
   beforeEach(() => {
     resetJobState();
     resetFirestoreState();
@@ -176,10 +221,9 @@ describe("/api/llm route", () => {
       Promise.resolve(jobState.nextJob)
     );
     mockedSaveNewsletterPlanStage.mockResolvedValue();
-    delete process.env.NEWSLETTER_JOB_TOKEN;
   });
 
-  it("returns 400 for invalid topic", async () => {
+  it("rejects with a 400 error for an invalid topic", async () => {
     const job = {
       id: "job-1",
       status: "news-ready",
@@ -193,18 +237,11 @@ describe("/api/llm route", () => {
     };
 
     jobState.store.set(job.id, job);
-    jobState.nextJob = { id: job.id, job };
     firestoreDocStore.set("emailSends/job-1", { id: job.id });
 
-    const response = await POST(
-      toRequest("http://localhost/api/llm?topic=invalid", {
-        sendId: "job-1",
-      })
-    );
-
-    expect(response.status).toBe(400);
-    const payload = await response.json();
-    expect(payload.error).toMatch(/invalid topic/i);
+    await expect(
+      processTopicWithLLM({ sendId: "job-1", topic: "invalid" })
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("processes a topic and stores a partial result", async () => {
@@ -222,70 +259,19 @@ describe("/api/llm route", () => {
     };
 
     jobState.store.set(job.id, job);
-    jobState.nextJob = { id: job.id, job };
     firestoreDocStore.set("emailSends/job-1", { id: job.id });
 
-    mockedGenerateNewsletterPlan.mockResolvedValue({
-      plan: {
-        essentialReads: {
-          overview: "Overview",
-          highlights: [
-            {
-              title: "Highlight",
-              summary: "Summary",
-              link: "https://example.com/a1",
-              publisher: "Publisher",
-              topic: "commentaries",
-              slug: itemSlug,
-              source: "Source",
-              pubDate: new Date().toISOString(),
-              sectionHints: ["commentaries"],
-            },
-          ],
-        },
-        commentaries: [
-          {
-            title: "Highlight",
-            summary: "Summary",
-            link: "https://example.com/a1",
-            publisher: "Publisher",
-            topic: "commentaries",
-            slug: itemSlug,
-            source: "Source",
-            pubDate: new Date().toISOString(),
-            sectionHints: ["commentaries"],
-          },
-        ],
-        international: [],
-        politics: [],
-        business: [],
-        tech: [],
-        sport: [],
-        culture: [],
-        wildCard: [],
-        entertainment: [],
-        science: [],
-        lifestyle: [],
-        summary: "Plan summary",
-      },
-      metadata: {
-        model: "test-model",
-        usedFallback: false,
-      },
+    mockedGenerateNewsletterPlan.mockResolvedValue(planFixture());
+
+    const result = await processTopicWithLLM({
+      sendId: "job-1",
+      topic: "commentaries",
     });
 
-    const response = await POST(
-      toRequest("http://localhost/api/llm?topic=commentaries", {
-        sendId: "job-1",
-      })
-    );
-
-    expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload.message).toBe("Topic processed");
-    expect(payload.topic).toBe("commentaries");
-    expect(payload.articlesUsed).toBe(1);
-    expect(payload.candidatesFetched).toBe(1);
+    expect(result.message).toBe("Topic processed");
+    expect(result.topic).toBe("commentaries");
+    expect(result.articlesUsed).toBe(1);
+    expect(result.candidatesFetched).toBe(1);
 
     const stored = firestoreDocStore.get("emailSends/job-1");
     expect(stored).toBeDefined();
@@ -300,7 +286,7 @@ describe("/api/llm route", () => {
     });
   });
 
-  it("processes one topic incrementally when no topic specified", async () => {
+  it("processes one topic incrementally when none is specified", async () => {
     const firstSlug = "commentaries-article";
     const secondSlug = "business-article";
     const job = {
@@ -321,15 +307,10 @@ describe("/api/llm route", () => {
     };
 
     jobState.store.set(job.id, job);
-    jobState.nextJob = { id: job.id, job };
     firestoreDocStore.set("emailSends/job-1", { id: job.id });
 
-    mockedGenerateNewsletterPlan.mockResolvedValue({
-      plan: {
-        essentialReads: {
-          overview: "Overview",
-          highlights: [],
-        },
+    mockedGenerateNewsletterPlan.mockResolvedValue(
+      planFixture({
         commentaries: [
           {
             title: "Commentary",
@@ -343,36 +324,19 @@ describe("/api/llm route", () => {
             sectionHints: ["commentaries"],
           },
         ],
-        international: [],
-        politics: [],
-        business: [],
-        tech: [],
-        sport: [],
-        culture: [],
-        wildCard: [],
-        entertainment: [],
-        science: [],
-        lifestyle: [],
         summary: "Commentaries summary",
-      },
-      metadata: {
-        model: "test-model",
-        usedFallback: false,
-      },
-    });
-
-    const response = await POST(
-      toRequest("http://localhost/api/llm", {
-        sendId: "job-1",
       })
     );
 
-    expect(response.status).toBe(200);
-    const payload = await response.json();
-    expect(payload.message).toBe("Topic processed");
-    expect(payload.topic).toBe("commentaries");
-    expect(payload.articlesUsed).toBe(1);
-    expect(payload.candidatesFetched).toBe(1);
+    const result = await runLLMPlanningStep("job-1");
+
+    expect(result.step).toBe("topic");
+    expect(result.message).toBe("Topic processed");
+    if (result.step === "topic") {
+      expect(result.topic).toBe("commentaries");
+      expect(result.articlesUsed).toBe(1);
+      expect(result.candidatesFetched).toBe(1);
+    }
     expect(mockedGenerateNewsletterPlan).toHaveBeenCalledTimes(1);
     const stored = firestoreDocStore.get("emailSends/job-1");
     expect(stored).toBeDefined();

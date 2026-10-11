@@ -1,7 +1,6 @@
 // Email sending pipeline: nodemailer transport and newsletter batch sends.
 //
-// Shared by the /api/send-newsletter route (step-based, for manual/debug
-// use) and the single worker script, which drives the whole pipeline
+// Used by the single worker script, which drives the whole pipeline
 // in-process.
 
 import nodemailer from "nodemailer";
@@ -79,9 +78,8 @@ export type NewsletterSendStepResult = {
 };
 
 /**
- * Send up to `maxBatches` batches for a job. Mirrors the /api/send-newsletter
- * step behavior; throws NewsletterSendError on failure after recording the
- * failed batch (marking the job failed).
+ * Send up to `maxBatches` batches for a job. Throws NewsletterSendError on
+ * failure after recording the failed batch (marking the job failed).
  */
 export async function sendNewsletterStep(
   sendId: string,
@@ -135,7 +133,7 @@ export async function sendNewsletterStep(
   if (!formattedHtml || !formattedRawText) {
     throw new NewsletterSendError(
       400,
-      "Newsletter job missing formatted content. Run /api/llm first."
+      "Newsletter job missing formatted content. Run scripts/send-newsletter.ts first."
     );
   }
 

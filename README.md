@@ -143,14 +143,13 @@ The script runs the whole pipeline in-process: starts (or resumes) a job, collec
 
 The app exposes several API endpoints under `/api/`. Key ones for automation:
 
-- `POST /api/start-newsletter` — Initialize or resume a newsletter job
-- `GET /api/news?persist=true&sources=N` — Collect news from RSS feeds in batches
-- `POST /api/llm` — Process newsletter planning with AI (incremental)
-- `POST /api/send-newsletter` — Send email batches for a job
+The app exposes a few server endpoints under `/api/`:
+
+- `GET /api/latest-newsletter` — Fetch the most recent published newsletter
 - `GET /api/status?id=sendId` — Check delivery status
 - `POST /api/subscribe` — Handle email subscriptions
 
-See route files in `app/api/` for detailed request/response schemas.
+The staged pipeline endpoints (`/api/start-newsletter`, `/api/news`, `/api/llm`, `/api/send-newsletter`) have been removed; the worker script (`scripts/send-newsletter.ts`) now runs the whole pipeline in-process. Legacy `/api/preprocess` and `/api/newsletter` return 410 Gone.
 
 ## Testing
 
@@ -286,13 +285,13 @@ Required repository secrets:
 
 ## API endpoints (summary)
 
-The repo exposes several server routes under `app/api/*` used by the automation script and the UI. The main endpoints used by automation are:
+The repo exposes a few server routes under `app/api/*`:
 
-- POST `/api/start-newsletter` — create or resume a newsletter job
-- GET `/api/news?persist=true&sources=N` — ingest RSS sources (batch)
-- POST `/api/llm` — run LLM planning for the staged job (incremental)
-- POST `/api/send-newsletter` — send one or more email batches for a staged job
+- GET `/api/latest-newsletter` — fetch the most recent published newsletter
 - GET `/api/status` — query send status
+- POST `/api/subscribe` — handle subscriptions
+
+The pipeline automation endpoints were removed with the move to the single worker script (`scripts/send-newsletter.ts`); `/api/preprocess` and `/api/newsletter` return 410 Gone for legacy callers.
 
 Refer to the route implementations in `app/api` for exact request/response shapes and error codes.
 
